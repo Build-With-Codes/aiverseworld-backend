@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model NewsSource {
+  id                  String       @id @default(cuid())
+  name                String       @unique
+  type                String
+  baseUrl             String
+  isActive            Boolean      @default(true)
+  pollIntervalMinutes Int          @default(15)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  rawArticles         RawArticle[]
+}
+
+model RawArticle {
+  id            String      @id @default(cuid())
+  sourceId      String
+  externalId    String?
+  title         String
+  url           String      @unique
+  content       String      @db.Text
+  excerpt       String      @db.Text
+  author        String?
+  publishedAt   DateTime
+  fetchedAt     DateTime    @default(now())
+  contentHash   String
+  status        String      @default("fetched")
+  category      String?
+  imageUrl      String?
+  isDuplicate   Boolean     @default(false)
+  duplicateOfId String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  source        NewsSource  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  aiArticle     AiArticle?
+
+  @@index([sourceId, publishedAt(sort: Desc)])
+  @@index([contentHash])
+  @@index([status])
+}
+
+model AiArticle {
+  id             String    @id @default(cuid())
+  rawArticleId   String    @unique
+  title          String
+  slug           String
+  summary        String    @db.Text
+  keyPoints      Json
+  category       String
+  tags           Json?
+  sourceUrl      String    @unique
+  sourceName     String
+  imageUrl       String
+  publishedAt    DateTime
+  processedAt    DateTime
+  isPublished    Boolean   @default(true)
+  copyrightOwner String
+  summaryOnly    Boolean   @default(true)
+  takedownEmail  String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  rawArticle     RawArticle @relation(fields: [rawArticleId], references: [id], onDelete: Cascade)
+
+  @@index([publishedAt(sort: Desc)])
+  @@index([category])
+  @@index([isPublished])
+}
+
+model NewsPipelineRun {
+  id           String   @id @default(cuid())
+  stage        String
+  status       String
+  trigger      String
+  message      String?
+  articleCount Int      @default(0)
+  feedCount    Int      @default(0)
+  metadata     Json?
+  startedAt    DateTime @default(now())
+  finishedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([status])
+}

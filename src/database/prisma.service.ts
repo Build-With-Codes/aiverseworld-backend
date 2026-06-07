@@ -1,0 +1,253 @@
+import {
+  Injectable,
+  Logger,
+  OnApplicationShutdown,
+  OnModuleInit,
+} from '@nestjs/common';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+@Injectable()
+export class PrismaService implements OnModuleInit, OnApplicationShutdown {
+  private readonly logger = new Logger(PrismaService.name);
+  private readonly requiredTables = [
+    'NewsSource',
+    'RawArticle',
+    'AiArticle',
+    'NewsPipelineRun',
+  ];
+  private available = false;
+  private client: PrismaClient | null = null;
+  private readonly migrationsPath = join(process.cwd(), 'prisma', 'migrations');
+  private lastError: string | null = null;
+  private reconnecting: Promise<boolean> | null = null;
+  private databaseInfo: {
+    db: string;
+    schema: string;
+    host: string | null;
+    port: number | null;
+  } | null = null;
+  private missingTables: string[] = [];
+
+  constructor() {
+    const databaseUrl = process.env.DATABASE_URL?.trim();
+
+    if (databaseUrl) {
+      this.client = new PrismaClient({
+        adapter: new PrismaPg({ connectionString: databaseUrl }),
+      });
+    }
+  }
+
+  async onModuleInit() {
+    this.logMigrationStatus();
+
+    if (!this.client) {
+      this.logger.warn('DATABASE_URL is not set. Prisma persistence is disabled.');
+      return;
+    }
+
+    try {
+      await this.client.$connect();
+      this.available = true;
+      this.lastError = null;
+      await this.loadDatabaseDiagnostics();
+      this.logger.log('Prisma connected. News persistence is enabled.');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown Prisma connection error';
+      this.lastError = message;
+      this.logger.error(`Prisma connection failed: ${message}`);
+    }
+  }
+
+  isAvailable() {
+    return this.available;
+  }
+
+  markUnavailable(reason: string) {
+    if (this.available) {
+      this.logger.error(`Prisma persistence disabled at runtime: ${reason}`);
+    }
+
+    this.available = false;
+    this.lastError = reason;
+  }
+
+  async ensureAvailable() {
+    if (this.available) {
+      return true;
+    }
+
+    if (!this.client) {
+      return false;
+    }
+
+    if (this.reconnecting) {
+      return this.reconnecting;
+    }
+
+    this.reconnecting = this.tryReconnect();
+    const result = await this.reconnecting;
+    this.reconnecting = null;
+    return result;
+  }
+
+  getClient() {
+    return this.client;
+  }
+
+  getStatus() {
+    return {
+      configured: Boolean(process.env.DATABASE_URL?.trim()),
+      connected: this.available,
+      lastError: this.lastError,
+      database: this.databaseInfo,
+      missingTables: this.missingTables,
+    };
+  }
+
+  async onApplicationShutdown() {
+    if (this.client) {
+      await this.client.$disconnect();
+    }
+  }
+
+  private logMigrationStatus() {
+    if (!existsSync(this.migrationsPath)) {
+      this.logger.warn(
+        'No Prisma migrations directory found. Run `npm.cmd run prisma:migrate` or `npm.cmd run prisma:push` before relying on persistence.',
+      );
+      return;
+    }
+
+    const migrationDirs = readdirSync(this.migrationsPath, {
+      withFileTypes: true,
+    }).filter((entry) => entry.isDirectory());
+
+    if (migrationDirs.length === 0) {
+      this.logger.warn(
+        'No Prisma migration files found. Run `npm.cmd run prisma:migrate` or `npm.cmd run prisma:push` to create database tables.',
+      );
+      return;
+    }
+
+    this.logger.log(
+      `Detected ${migrationDirs.length} Prisma migration set(s) in prisma/migrations.`,
+    );
+  }
+
+  private async tryReconnect() {
+    if (!this.client) {
+      return false;
+    }
+
+    try {
+      await this.client.$connect();
+      this.available = true;
+      this.lastError = null;
+      await this.loadDatabaseDiagnostics();
+      this.logger.log('Prisma reconnected. News persistence is enabled again.');
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown Prisma reconnection error';
+      this.available = false;
+      this.lastError = message;
+      this.logger.warn(`Prisma reconnect failed: ${message}`);
+      return false;
+    }
+  }
+
+  private async loadDatabaseDiagnostics() {
+    if (!this.client) {
+      return;
+    }
+
+    const [dbInfoRows, tableRows] = await Promise.all([
+      this.client.$queryRawUnsafe<
+        Array<{ db: string; schema: string; host: string | null; port: number | null }>
+      >(
+        `select current_database() as db, current_schema() as schema, inet_server_addr()::text as host, inet_server_port() as port`,
+      ),
+      this.client.$queryRawUnsafe<Array<{ tablename: string }>>(
+        `select tablename from pg_tables where schemaname = current_schema()`,
+      ),
+    ]);
+
+    this.databaseInfo = dbInfoRows[0] ?? null;
+    const existingTables = new Set(tableRows.map((row) => row.tablename));
+    this.missingTables = this.requiredTables.filter(
+      (tableName) => !existingTables.has(tableName),
+    );
+
+    if (this.databaseInfo) {
+      this.logger.log(
+        `Connected database target: ${this.databaseInfo.db} on ${this.databaseInfo.host ?? 'unknown-host'}:${this.databaseInfo.port ?? 'unknown-port'} schema ${this.databaseInfo.schema}.`,
+      );
+    }
+
+    if (this.missingTables.length > 0) {
+      this.logger.warn(
+        `News tables missing in current database: ${this.missingTables.join(', ')}. Run \`npm.cmd run prisma:migrate\` or \`npm.cmd run prisma:push\`.`,
+      );
+      const autoCreated = this.tryAutoPush();
+
+      if (!autoCreated) {
+        this.available = false;
+        this.lastError = `Missing tables: ${this.missingTables.join(', ')}`;
+        return;
+      }
+    }
+
+    this.missingTables = [];
+  }
+
+  private tryAutoPush() {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const autoPushEnabled = process.env.PRISMA_AUTO_PUSH !== 'false';
+
+    if (isProduction || !autoPushEnabled) {
+      return false;
+    }
+
+    this.logger.warn(
+      'Development mode detected. Running `prisma db push` automatically because news tables are missing.',
+    );
+
+    const result =
+      process.platform === 'win32'
+        ? spawnSync(
+            process.env.ComSpec ?? 'cmd.exe',
+            ['/d', '/s', '/c', 'npx prisma db push'],
+            {
+              cwd: process.cwd(),
+              env: process.env,
+              encoding: 'utf8',
+            },
+          )
+        : spawnSync('npx', ['prisma', 'db', 'push'], {
+            cwd: process.cwd(),
+            env: process.env,
+            encoding: 'utf8',
+          });
+
+    if (result.status !== 0) {
+      const message =
+        result.error?.message ||
+        result.stderr?.trim() ||
+        result.stdout?.trim() ||
+        `prisma db push exited with code ${result.status ?? 'unknown'}`;
+      this.logger.error(`Automatic prisma db push failed: ${message}`);
+      return false;
+    }
+
+    this.logger.log('Automatic prisma db push completed successfully.');
+    this.missingTables = [];
+    this.lastError = null;
+    return true;
+  }
+}
