@@ -48,6 +48,8 @@ function compareArticlesByFreshness(
 @Injectable()
 export class NewsService {
   private readonly logger = new Logger(NewsService.name);
+  private readonly defaultArticleLimit = 10;
+  private readonly minimumPublishedArticles = 10;
   private processedArticles: ProcessedArticle[] = [];
   private sourceArticles: NewsSourceArticle[] = [...seedArticles];
 
@@ -58,16 +60,26 @@ export class NewsService {
   ) {}
 
   async getArticles(options: RefreshNewsOptions = {}) {
-    if (this.processedArticles.length === 0 && this.repository.isEnabled()) {
+    const requestedLimit = options.limit ?? this.defaultArticleLimit;
+
+    if (this.repository.isEnabled()) {
       const storedArticles = await this.repository.getLatestArticles(
-        options.limit ?? 12,
+        requestedLimit,
         options.category,
       );
+      const publishedArticles = storedArticles.map((article) =>
+        this.repository.mapStoredArticle(article),
+      );
 
-      if (storedArticles.length > 0) {
-        this.processedArticles = storedArticles.map((article) =>
-          this.repository.mapStoredArticle(article),
-        );
+      if (
+        publishedArticles.length >=
+        Math.min(requestedLimit, this.minimumPublishedArticles)
+      ) {
+        return publishedArticles.slice(0, requestedLimit);
+      }
+
+      if (publishedArticles.length > 0) {
+        this.processedArticles = publishedArticles;
       }
     }
 
@@ -76,6 +88,19 @@ export class NewsService {
         ...options,
         trigger: options.trigger ?? 'startup',
       });
+    }
+
+    if (this.repository.isEnabled()) {
+      const storedArticles = await this.repository.getLatestArticles(
+        requestedLimit,
+        options.category,
+      );
+
+      if (storedArticles.length > 0) {
+        return storedArticles
+          .map((article) => this.repository.mapStoredArticle(article))
+          .slice(0, requestedLimit);
+      }
     }
 
     let articles = [...this.processedArticles];
@@ -87,7 +112,7 @@ export class NewsService {
       );
     }
 
-    return articles.slice(0, options.limit ?? 12);
+    return articles.slice(0, requestedLimit);
   }
 
   async refreshArticles(options: RefreshNewsOptions = {}) {
@@ -161,6 +186,18 @@ export class NewsService {
       this.processedArticles = processed.sort(compareArticlesByFreshness);
 
       await this.repository.publishArticles(this.processedArticles);
+      if (this.repository.isEnabled()) {
+        const publishedArticles = await this.repository.getLatestArticles(
+          options.limit ?? this.defaultArticleLimit,
+          options.category,
+        );
+
+        if (publishedArticles.length > 0) {
+          this.processedArticles = publishedArticles.map((article) =>
+            this.repository.mapStoredArticle(article),
+          );
+        }
+      }
       await this.repository.finishRunLog(run?.id ?? '', {
         stage: 'publish',
         status: 'completed',
