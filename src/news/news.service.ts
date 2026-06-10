@@ -30,40 +30,33 @@ function hashContent(value: string) {
   return createHash('sha256').update(value.trim().toLowerCase()).digest('hex');
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 function resolveOpenRouterChatUrl() {
   const configuredUrl = process.env.OPENROUTER_BASE_URL?.trim();
+  const base = (configuredUrl ?? 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
 
-  if (!configuredUrl) {
-    return 'https://openrouter.ai/api/v1/chat/completions';
+  if (base.endsWith('/chat/completions')) {
+    return base;
   }
 
-  if (configuredUrl.endsWith('/chat/completions')) {
-    return configuredUrl;
+  if (base.endsWith('/api/v1')) {
+    return `${base}/chat/completions`;
   }
 
-  if (configuredUrl.endsWith('/api/v1')) {
-    return `${configuredUrl}/chat/completions`;
+  if (base.endsWith('/api')) {
+    return `${base}/v1/chat/completions`;
   }
 
-  if (configuredUrl.endsWith('/api/v1/')) {
-    return `${configuredUrl}chat/completions`;
-  }
-
-  const normalizedBase = configuredUrl.replace(/\/+$/, '');
-
-  if (normalizedBase.endsWith('/api')) {
-    return `${normalizedBase}/v1/chat/completions`;
-  }
-
-  return `${normalizedBase}/api/v1/chat/completions`;
+  return `${base}/api/v1/chat/completions`;
 }
 
 function getOpenRouterModels() {
   const configuredModel = process.env.OPENROUTER_MODEL?.trim();
   const fallbackModels = [
-    '~google/gemini-flash-latest',
-    'google/gemini-3.1-flash-lite',
-    'google/gemini-3.5-flash',
+    'deepseek/deepseek-r1-distill-llama-70b',
+    'qwen/qwen3-8b',
+    'mistralai/mistral-small-3',
   ];
 
   return Array.from(
@@ -344,6 +337,15 @@ export class NewsService {
     };
   }
 
+  private withTimeout<T>(promise: Promise<T>, ms = 15_000): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error('OpenRouter request timeout')), ms),
+      ),
+    ]);
+  }
+
   private async processArticle(article: RawStoredArticle): Promise<ProcessedArticle> {
     const aiSummary = await this.generateSummary(article);
     const processedAt = new Date().toISOString();
@@ -374,7 +376,7 @@ export class NewsService {
   private async generateSummary(article: RawStoredArticle) {
     if (!process.env.OPENROUTER_API_KEY) {
       this.logger.warn(
-        `Fallback summary used for "${article.title}" because OPENROUTER_API_KEY is not configured.`,
+        `Fallback summary used for "${article.title.replace(/[\r\n]/g, ' ')}" because OPENROUTER_API_KEY is not configured.`,
       );
       return this.generateFallbackSummary(article.content, article.excerpt, article.title, article.category);
     }
@@ -383,78 +385,83 @@ export class NewsService {
 
     for (const model of getOpenRouterModels()) {
       try {
-        const response = await fetch(openRouterUrl, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer':
-              process.env.OPENROUTER_SITE_URL ?? 'https://aiverseworld.example',
-            'X-Title': process.env.OPENROUTER_APP_NAME ?? 'AiverseWorld News',
-          },
-          body: JSON.stringify({
-            model,
-            temperature: 0.2,
-            response_format: { type: 'json_object' },
-            messages: [
-              {
-                role: 'system',
-                content:
-                  'You summarize enterprise AI news. Return JSON with title and summary. The title should be a clean short headline. The summary should be one short factual paragraph, with no quotes, within about 4 short lines.',
-              },
-              {
-                role: 'user',
-                content: JSON.stringify({
-                  title: article.title,
-                  sourceName: article.sourceName,
-                  excerpt: article.excerpt,
-                  body: article.content,
-                  rules: [
-                    'Write a short clean headline.',
-                    'Write one short paragraph only.',
-                    'Keep it under 70 words.',
-                    'Do not quote the article.',
-                    'Do not add unsupported claims.',
-                  ],
-                }),
-              },
-            ],
+        const response = await this.withTimeout(
+          fetch(openRouterUrl, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+              'Content-Type': 'application/json',
+              'HTTP-Referer':
+                process.env.OPENROUTER_SITE_URL ?? 'https://aiverseworld.example',
+              'X-Title': process.env.OPENROUTER_APP_NAME ?? 'AiverseWorld News',
+            },
+            body: JSON.stringify({
+              model,
+              temperature: 0.2,
+              response_format: { type: 'json_object' },
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'Return ONLY valid JSON. No markdown, no extra text.\n\nSchema:\n{"title":"string (max 12 words)","summary":"string (max 70 words)"}\n\nRules:\n- No markdown\n- No extra text\n- No explanations\n- No hallucination',
+                },
+                {
+                  role: 'user',
+                  content: JSON.stringify({
+                    title: article.title,
+                    sourceName: article.sourceName,
+                    excerpt: article.excerpt,
+                    body: article.content,
+                  }),
+                },
+              ],
+            }),
           }),
-        });
+        );
 
         if (!response.ok) {
           this.logger.warn(
-            `OpenRouter returned HTTP ${response.status} for "${article.title}" with model=${model}. Trying next model if available.`,
+            `OpenRouter returned HTTP ${response.status} for "${article.title.replace(/[\r\n]/g, ' ')}" with model=${model}. Trying next model if available.`,
           );
           continue;
         }
 
         const payload = (await response.json()) as {
-          choices?: Array<{ message?: { content?: string } }>;
+          choices?: Array<{ message?: { content?: string | object } }>;
         };
         const content = payload.choices?.[0]?.message?.content;
 
         if (!content) {
           this.logger.warn(
-            `OpenRouter returned no content for "${article.title}" with model=${model}. Trying next model if available.`,
+            `OpenRouter returned no content for "${article.title.replace(/[\r\n]/g, ' ')}" with model=${model}. Trying next model if available.`,
           );
           continue;
         }
 
-        const parsed = JSON.parse(content) as {
-          title?: string;
-          summary?: string;
-        };
+        let parsed: { title?: string; summary?: string };
+        try {
+          parsed =
+            typeof content === 'string'
+              ? (JSON.parse(content) as { title?: string; summary?: string })
+              : (content as { title?: string; summary?: string });
+        } catch {
+          this.logger.warn(
+            `Invalid JSON from model for "${article.title.replace(/[\r\n]/g, ' ')}" with model=${model}. Trying next.`,
+          );
+          await sleep(500);
+          continue;
+        }
 
         if (!parsed.title || !parsed.summary) {
           this.logger.warn(
-            `OpenRouter returned invalid JSON fields for "${article.title}" with model=${model}. Trying next model if available.`,
+            `OpenRouter returned invalid JSON fields for "${article.title.replace(/[\r\n]/g, ' ')}" with model=${model}. Trying next model if available.`,
           );
+          await sleep(500);
           continue;
         }
 
         this.logger.log(
-          `OpenRouter summary generated for "${article.title}" with model=${model}`,
+          `OpenRouter summary generated for "${article.title.replace(/[\r\n]/g, ' ')}" with model=${model}`,
         );
         return {
           title: parsed.title.trim(),
@@ -465,13 +472,14 @@ export class NewsService {
         const message =
           error instanceof Error ? error.message : 'Unknown OpenRouter error';
         this.logger.warn(
-          `OpenRouter failed for "${article.title}" with model=${model}: ${message}. Trying next model if available.`,
+          `OpenRouter failed for "${article.title.replace(/[\r\n]/g, ' ')}" with model=${model}: ${message}. Trying next model if available.`,
         );
+        await sleep(500);
       }
     }
 
     this.logger.warn(
-      `Fallback summary used for "${article.title}" because all OpenRouter model attempts failed.`,
+      `Fallback summary used for "${article.title.replace(/[\r\n]/g, ' ')}" because all OpenRouter model attempts failed.`,
     );
     return this.generateFallbackSummary(
       article.content,
