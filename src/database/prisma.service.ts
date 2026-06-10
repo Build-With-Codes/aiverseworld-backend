@@ -199,7 +199,7 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
 
     if (this.databaseInfo) {
       this.logger.log(
-        `Connected database target: ${this.databaseInfo.db} on ${this.databaseInfo.host ?? 'unknown-host'}:${this.databaseInfo.port ?? 'unknown-port'} schema ${this.databaseInfo.schema}.`,
+        `Connected database target: ${this.databaseInfo.db} on ${this.databaseInfo.host ?? 'unknown-host'}:${this.databaseInfo.port ?? 'unknown-port'} schema ${this.schemaName}.`,
       );
     }
 
