@@ -4,10 +4,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  schemas  = ["aiverse_world"]
 }
 
 model NewsSource {
   id                  String       @id @default(cuid())
+
+  @@schema("aiverse_world")
   name                String       @unique
   type                String
   baseUrl             String
@@ -43,6 +46,7 @@ model RawArticle {
   @@index([sourceId, publishedAt(sort: Desc)])
   @@index([contentHash])
   @@index([status])
+  @@schema("aiverse_world")
 }
 
 model AiArticle {
@@ -70,6 +74,7 @@ model AiArticle {
   @@index([publishedAt(sort: Desc)])
   @@index([category])
   @@index([isPublished])
+  @@schema("aiverse_world")
 }
 
 model NewsPipelineRun {
@@ -87,4 +92,5 @@ model NewsPipelineRun {
 
   @@index([createdAt(sort: Desc)])
   @@index([status])
+  @@schema("aiverse_world")
 }

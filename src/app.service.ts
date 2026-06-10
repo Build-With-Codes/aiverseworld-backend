@@ -13,6 +13,7 @@ export class AppService {
         '/api/news/sources',
         '/api/news/refresh',
         '/api/news/refresh/cron',
+        '/api/games/draw-guess',
       ],
     };
   }

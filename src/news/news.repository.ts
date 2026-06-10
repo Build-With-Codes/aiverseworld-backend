@@ -5,7 +5,7 @@ import {
   type NewsPipelineRun,
   type NewsSource,
   type RawArticle,
-} from '@prisma/client';
+} from '../generated/prisma';
 import { PrismaService } from '../database/prisma.service';
 import type {
   ProcessedArticle,

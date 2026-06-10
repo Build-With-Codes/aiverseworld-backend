@@ -5,14 +5,16 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { Pool } from 'pg';
 
 @Injectable()
 export class PrismaService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(PrismaService.name);
+  private readonly schemaName = 'aiverse_world';
   private readonly requiredTables = [
     'NewsSource',
     'RawArticle',
@@ -20,6 +22,7 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
     'NewsPipelineRun',
   ];
   private available = false;
+  private pool: Pool | null = null;
   private client: PrismaClient | null = null;
   private readonly migrationsPath = join(process.cwd(), 'prisma', 'migrations');
   private lastError: string | null = null;
@@ -33,11 +36,20 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
   private missingTables: string[] = [];
 
   constructor() {
-    const databaseUrl = process.env.DATABASE_URL?.trim();
+    const databaseUrl = this.resolveDatabaseUrl();
 
     if (databaseUrl) {
+      this.pool = new Pool({
+        connectionString: databaseUrl,
+        max: 10,
+        idleTimeoutMillis: 10_000,
+        connectionTimeoutMillis: 5_000,
+      });
+      this.pool.on('error', (err) => {
+        this.logger.error('Unexpected pg pool error', err);
+      });
       this.client = new PrismaClient({
-        adapter: new PrismaPg({ connectionString: databaseUrl }),
+        adapter: new PrismaPg(this.pool),
       });
     }
   }
@@ -54,6 +66,7 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       await this.client.$connect();
       this.available = true;
       this.lastError = null;
+      await this.ensureAppSchema();
       await this.loadDatabaseDiagnostics();
       this.logger.log('Prisma connected. News persistence is enabled.');
     } catch (error) {
@@ -111,9 +124,8 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
   }
 
   async onApplicationShutdown() {
-    if (this.client) {
-      await this.client.$disconnect();
-    }
+    await this.client?.$disconnect();
+    await this.pool?.end();
   }
 
   private logMigrationStatus() {
@@ -146,9 +158,10 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
     }
 
     try {
-      await this.client.$connect();
+      await this.client.$queryRaw`SELECT 1`;
       this.available = true;
       this.lastError = null;
+      await this.ensureAppSchema();
       await this.loadDatabaseDiagnostics();
       this.logger.log('Prisma reconnected. News persistence is enabled again.');
       return true;
@@ -173,8 +186,8 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       >(
         `select current_database() as db, current_schema() as schema, inet_server_addr()::text as host, inet_server_port() as port`,
       ),
-      this.client.$queryRawUnsafe<Array<{ tablename: string }>>(
-        `select tablename from pg_tables where schemaname = current_schema()`,
+      this.client.$queryRaw<Array<{ tablename: string }>>(
+        Prisma.sql`SELECT tablename FROM pg_tables WHERE schemaname = ${this.schemaName}`,
       ),
     ]);
 
@@ -192,7 +205,7 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
 
     if (this.missingTables.length > 0) {
       this.logger.warn(
-        `News tables missing in current database: ${this.missingTables.join(', ')}. Run \`npm.cmd run prisma:migrate\` or \`npm.cmd run prisma:push\`.`,
+        `News tables missing in schema "${this.schemaName}": ${this.missingTables.join(', ')}. Run \`npm.cmd run prisma:migrate\` for migrations or \`npm.cmd run prisma:push\` for dev schema sync.`,
       );
       const autoCreated = this.tryAutoPush();
 
@@ -222,14 +235,14 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       process.platform === 'win32'
         ? spawnSync(
             process.env.ComSpec ?? 'cmd.exe',
-            ['/d', '/s', '/c', 'npx prisma db push'],
+            ['/d', '/s', '/c', 'npx prisma db push --accept-data-loss'],
             {
               cwd: process.cwd(),
               env: process.env,
               encoding: 'utf8',
             },
           )
-        : spawnSync('npx', ['prisma', 'db', 'push'], {
+        : spawnSync('npx', ['prisma', 'db', 'push', '--accept-data-loss'], {
             cwd: process.cwd(),
             env: process.env,
             encoding: 'utf8',
@@ -249,5 +262,31 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
     this.missingTables = [];
     this.lastError = null;
     return true;
+  }
+
+  private resolveDatabaseUrl() {
+    const configuredUrl = process.env.DATABASE_URL?.trim();
+
+    if (!configuredUrl) {
+      return null;
+    }
+
+    try {
+      const url = new URL(configuredUrl);
+      url.searchParams.set('schema', this.schemaName);
+      return url.toString();
+    } catch {
+      return configuredUrl;
+    }
+  }
+
+  private async ensureAppSchema() {
+    if (!this.client) {
+      return;
+    }
+
+    await this.client.$executeRawUnsafe(
+      `CREATE SCHEMA IF NOT EXISTS "${this.schemaName}"`,
+    );
   }
 }

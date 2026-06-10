@@ -30,6 +30,51 @@ function hashContent(value: string) {
   return createHash('sha256').update(value.trim().toLowerCase()).digest('hex');
 }
 
+function resolveOpenRouterChatUrl() {
+  const configuredUrl = process.env.OPENROUTER_BASE_URL?.trim();
+
+  if (!configuredUrl) {
+    return 'https://openrouter.ai/api/v1/chat/completions';
+  }
+
+  if (configuredUrl.endsWith('/chat/completions')) {
+    return configuredUrl;
+  }
+
+  if (configuredUrl.endsWith('/api/v1')) {
+    return `${configuredUrl}/chat/completions`;
+  }
+
+  if (configuredUrl.endsWith('/api/v1/')) {
+    return `${configuredUrl}chat/completions`;
+  }
+
+  const normalizedBase = configuredUrl.replace(/\/+$/, '');
+
+  if (normalizedBase.endsWith('/api')) {
+    return `${normalizedBase}/v1/chat/completions`;
+  }
+
+  return `${normalizedBase}/api/v1/chat/completions`;
+}
+
+function getOpenRouterModels() {
+  const configuredModel = process.env.OPENROUTER_MODEL?.trim();
+  const fallbackModels = [
+    '~google/gemini-flash-latest',
+    'google/gemini-3.1-flash-lite',
+    'google/gemini-3.5-flash',
+  ];
+
+  return Array.from(
+    new Set(
+      [configuredModel, ...fallbackModels].filter(
+        (value): value is string => Boolean(value),
+      ),
+    ),
+  );
+}
+
 function compareArticlesByFreshness(
   left: { processedAt?: string; publishedAt: string },
   right: { processedAt?: string; publishedAt: string },
@@ -334,11 +379,11 @@ export class NewsService {
       return this.generateFallbackSummary(article.content, article.excerpt, article.title, article.category);
     }
 
-    try {
-      const response = await fetch(
-        process.env.OPENROUTER_BASE_URL ??
-          'https://openrouter.ai/api/v1/chat/completions',
-        {
+    const openRouterUrl = resolveOpenRouterChatUrl();
+
+    for (const model of getOpenRouterModels()) {
+      try {
+        const response = await fetch(openRouterUrl, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
@@ -348,9 +393,7 @@ export class NewsService {
             'X-Title': process.env.OPENROUTER_APP_NAME ?? 'AiverseWorld News',
           },
           body: JSON.stringify({
-            model:
-              process.env.OPENROUTER_MODEL ??
-              'google/gemini-2.0-flash-exp:free',
+            model,
             temperature: 0.2,
             response_format: { type: 'json_object' },
             messages: [
@@ -377,74 +420,65 @@ export class NewsService {
               },
             ],
           }),
-        },
-      );
+        });
 
-      if (!response.ok) {
-        this.logger.warn(
-          `Fallback summary used for "${article.title}" because OpenRouter returned HTTP ${response.status}.`,
+        if (!response.ok) {
+          this.logger.warn(
+            `OpenRouter returned HTTP ${response.status} for "${article.title}" with model=${model}. Trying next model if available.`,
+          );
+          continue;
+        }
+
+        const payload = (await response.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+        };
+        const content = payload.choices?.[0]?.message?.content;
+
+        if (!content) {
+          this.logger.warn(
+            `OpenRouter returned no content for "${article.title}" with model=${model}. Trying next model if available.`,
+          );
+          continue;
+        }
+
+        const parsed = JSON.parse(content) as {
+          title?: string;
+          summary?: string;
+        };
+
+        if (!parsed.title || !parsed.summary) {
+          this.logger.warn(
+            `OpenRouter returned invalid JSON fields for "${article.title}" with model=${model}. Trying next model if available.`,
+          );
+          continue;
+        }
+
+        this.logger.log(
+          `OpenRouter summary generated for "${article.title}" with model=${model}`,
         );
-        return this.generateFallbackSummary(
-          article.content,
-          article.excerpt,
-          article.title,
-          article.category,
+        return {
+          title: parsed.title.trim(),
+          summary: parsed.summary.trim(),
+          keyPoints: [],
+        };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown OpenRouter error';
+        this.logger.warn(
+          `OpenRouter failed for "${article.title}" with model=${model}: ${message}. Trying next model if available.`,
         );
       }
-
-      const payload = (await response.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const content = payload.choices?.[0]?.message?.content;
-
-      if (!content) {
-        this.logger.warn(
-          `Fallback summary used for "${article.title}" because OpenRouter returned no content.`,
-        );
-        return this.generateFallbackSummary(
-          article.content,
-          article.excerpt,
-          article.title,
-          article.category,
-        );
-      }
-
-      const parsed = JSON.parse(content) as {
-        title?: string;
-        summary?: string;
-      };
-
-      if (!parsed.title || !parsed.summary) {
-        this.logger.warn(
-          `Fallback summary used for "${article.title}" because OpenRouter returned invalid JSON fields.`,
-        );
-        return this.generateFallbackSummary(
-          article.content,
-          article.excerpt,
-          article.title,
-          article.category,
-        );
-      }
-
-      this.logger.log(`OpenRouter summary generated for "${article.title}"`);
-      return {
-        title: parsed.title.trim(),
-        summary: parsed.summary.trim(),
-        keyPoints: [],
-      };
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown OpenRouter error';
-      this.logger.warn(
-        `Fallback summary used for "${article.title}" because OpenRouter failed: ${message}`,
-      );
-      return this.generateFallbackSummary(
-        article.content,
-        article.excerpt,
-        article.title,
-        article.category,
-      );
     }
+
+    this.logger.warn(
+      `Fallback summary used for "${article.title}" because all OpenRouter model attempts failed.`,
+    );
+    return this.generateFallbackSummary(
+      article.content,
+      article.excerpt,
+      article.title,
+      article.category,
+    );
   }
 
   private generateFallbackSummary(
