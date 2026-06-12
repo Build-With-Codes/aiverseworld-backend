@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import express from 'express';
 import { createServer } from 'node:net';
 import { AppModule } from './app.module';
 
@@ -38,6 +39,7 @@ async function findAvailablePort(preferredPort: number) {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.use('/api/english-tutor/realtime-call', express.text({ type: '*/*' }));
   app.enableCors({
     origin: process.env.CORS_ORIGIN?.split(',').map((value) => value.trim()) ?? [
       'http://localhost:3000',

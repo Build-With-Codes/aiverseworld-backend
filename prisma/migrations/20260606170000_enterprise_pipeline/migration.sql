@@ -1,4 +1,6 @@
-CREATE TABLE "NewsSource" (
+CREATE SCHEMA IF NOT EXISTS "aiverse_world";
+
+CREATE TABLE IF NOT EXISTS "aiverse_world"."NewsSource" (
   "id" TEXT NOT NULL,
   "name" TEXT NOT NULL,
   "type" TEXT NOT NULL,
@@ -11,7 +13,7 @@ CREATE TABLE "NewsSource" (
   CONSTRAINT "NewsSource_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "RawArticle" (
+CREATE TABLE IF NOT EXISTS "aiverse_world"."RawArticle" (
   "id" TEXT NOT NULL,
   "sourceId" TEXT NOT NULL,
   "externalId" TEXT,
@@ -34,7 +36,7 @@ CREATE TABLE "RawArticle" (
   CONSTRAINT "RawArticle_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "AiArticle" (
+CREATE TABLE IF NOT EXISTS "aiverse_world"."AiArticle" (
   "id" TEXT NOT NULL,
   "rawArticleId" TEXT NOT NULL,
   "title" TEXT NOT NULL,
@@ -58,21 +60,21 @@ CREATE TABLE "AiArticle" (
   CONSTRAINT "AiArticle_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "NewsSource_name_key" ON "NewsSource"("name");
-CREATE UNIQUE INDEX "RawArticle_url_key" ON "RawArticle"("url");
-CREATE UNIQUE INDEX "AiArticle_rawArticleId_key" ON "AiArticle"("rawArticleId");
-CREATE UNIQUE INDEX "AiArticle_sourceUrl_key" ON "AiArticle"("sourceUrl");
-CREATE INDEX "RawArticle_sourceId_publishedAt_idx" ON "RawArticle"("sourceId", "publishedAt" DESC);
-CREATE INDEX "RawArticle_contentHash_idx" ON "RawArticle"("contentHash");
-CREATE INDEX "RawArticle_status_idx" ON "RawArticle"("status");
-CREATE INDEX "AiArticle_publishedAt_idx" ON "AiArticle"("publishedAt" DESC);
-CREATE INDEX "AiArticle_category_idx" ON "AiArticle"("category");
-CREATE INDEX "AiArticle_isPublished_idx" ON "AiArticle"("isPublished");
+CREATE UNIQUE INDEX IF NOT EXISTS "NewsSource_name_key" ON "aiverse_world"."NewsSource"("name");
+CREATE UNIQUE INDEX IF NOT EXISTS "RawArticle_url_key" ON "aiverse_world"."RawArticle"("url");
+CREATE UNIQUE INDEX IF NOT EXISTS "AiArticle_rawArticleId_key" ON "aiverse_world"."AiArticle"("rawArticleId");
+CREATE UNIQUE INDEX IF NOT EXISTS "AiArticle_sourceUrl_key" ON "aiverse_world"."AiArticle"("sourceUrl");
+CREATE INDEX IF NOT EXISTS "RawArticle_sourceId_publishedAt_idx" ON "aiverse_world"."RawArticle"("sourceId", "publishedAt" DESC);
+CREATE INDEX IF NOT EXISTS "RawArticle_contentHash_idx" ON "aiverse_world"."RawArticle"("contentHash");
+CREATE INDEX IF NOT EXISTS "RawArticle_status_idx" ON "aiverse_world"."RawArticle"("status");
+CREATE INDEX IF NOT EXISTS "AiArticle_publishedAt_idx" ON "aiverse_world"."AiArticle"("publishedAt" DESC);
+CREATE INDEX IF NOT EXISTS "AiArticle_category_idx" ON "aiverse_world"."AiArticle"("category");
+CREATE INDEX IF NOT EXISTS "AiArticle_isPublished_idx" ON "aiverse_world"."AiArticle"("isPublished");
 
-ALTER TABLE "RawArticle"
-ADD CONSTRAINT "RawArticle_sourceId_fkey"
-FOREIGN KEY ("sourceId") REFERENCES "NewsSource"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "aiverse_world"."RawArticle"
+  ADD CONSTRAINT "RawArticle_sourceId_fkey"
+  FOREIGN KEY ("sourceId") REFERENCES "aiverse_world"."NewsSource"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "AiArticle"
-ADD CONSTRAINT "AiArticle_rawArticleId_fkey"
-FOREIGN KEY ("rawArticleId") REFERENCES "RawArticle"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "aiverse_world"."AiArticle"
+  ADD CONSTRAINT "AiArticle_rawArticleId_fkey"
+  FOREIGN KEY ("rawArticleId") REFERENCES "aiverse_world"."RawArticle"("id") ON DELETE CASCADE ON UPDATE CASCADE;

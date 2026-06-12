@@ -15,11 +15,17 @@ import { Pool } from 'pg';
 export class PrismaService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(PrismaService.name);
   private readonly schemaName = 'aiverse_world';
+  private readonly defaultPoolMax = 10;
+  private readonly defaultPoolIdleTimeoutMs = 10_000;
+  private readonly defaultPoolConnectionTimeoutMs = 5_000;
   private readonly requiredTables = [
     'NewsSource',
     'RawArticle',
     'AiArticle',
     'NewsPipelineRun',
+    'EnglishTutorSession',
+    'EnglishTutorTurn',
+    'EnglishTutorMistake',
   ];
   private available = false;
   private pool: Pool | null = null;
@@ -34,16 +40,23 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
     port: number | null;
   } | null = null;
   private missingTables: string[] = [];
+  private runtimeConnectionHost: string | null = null;
 
   constructor() {
     const databaseUrl = this.resolveDatabaseUrl();
 
     if (databaseUrl) {
+      this.runtimeConnectionHost = this.extractConnectionHost(databaseUrl);
       this.pool = new Pool({
         connectionString: databaseUrl,
-        max: 10,
-        idleTimeoutMillis: 10_000,
-        connectionTimeoutMillis: 5_000,
+        max: Number(process.env.DB_POOL_MAX ?? this.defaultPoolMax),
+        idleTimeoutMillis: Number(
+          process.env.DB_POOL_IDLE_TIMEOUT_MS ?? this.defaultPoolIdleTimeoutMs,
+        ),
+        connectionTimeoutMillis: Number(
+          process.env.DB_POOL_CONNECTION_TIMEOUT_MS ??
+            this.defaultPoolConnectionTimeoutMs,
+        ),
       });
       this.pool.on('error', (err) => {
         this.logger.error('Unexpected pg pool error', err);
@@ -120,6 +133,24 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       lastError: this.lastError,
       database: this.databaseInfo,
       missingTables: this.missingTables,
+      runtimeConnection: {
+        type: 'pooled',
+        env: 'DATABASE_URL',
+        host: this.runtimeConnectionHost,
+        poolMax: Number(process.env.DB_POOL_MAX ?? this.defaultPoolMax),
+      },
+      migrationConnection: {
+        type: 'direct',
+        env: process.env.DIRECT_URL?.trim()
+          ? 'DIRECT_URL'
+          : process.env.DIRECT_DATABASE_URL?.trim()
+            ? 'DIRECT_DATABASE_URL'
+            : null,
+        configured: Boolean(
+          process.env.DIRECT_URL?.trim() ||
+            process.env.DIRECT_DATABASE_URL?.trim(),
+        ),
+      },
     };
   }
 
@@ -205,7 +236,7 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
 
     if (this.missingTables.length > 0) {
       this.logger.warn(
-        `News tables missing in schema "${this.schemaName}": ${this.missingTables.join(', ')}. Run \`npm.cmd run prisma:migrate\` for migrations or \`npm.cmd run prisma:push\` for dev schema sync.`,
+        `Tables missing in schema "${this.schemaName}": ${this.missingTables.join(', ')}. Run \`npm.cmd run prisma:migrate\` for migrations or \`npm.cmd run prisma:push\` for dev schema sync.`,
       );
       const autoCreated = this.tryAutoPush();
 
@@ -214,6 +245,22 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
         this.lastError = `Missing tables: ${this.missingTables.join(', ')}`;
         return;
       }
+
+      // Re-verify tables exist after push
+      const verifyRows = await this.client.$queryRaw<Array<{ tablename: string }>>(
+        Prisma.sql`SELECT tablename FROM pg_tables WHERE schemaname = ${this.schemaName}`,
+      );
+      const verifiedTables = new Set(verifyRows.map((r) => r.tablename));
+      const stillMissing = this.requiredTables.filter((t) => !verifiedTables.has(t));
+
+      if (stillMissing.length > 0) {
+        this.available = false;
+        this.lastError = `Auto-push ran but tables still missing: ${stillMissing.join(', ')}`;
+        this.logger.error(this.lastError);
+        return;
+      }
+
+      this.logger.log('All required tables verified after auto-push.');
     }
 
     this.missingTables = [];
@@ -277,6 +324,15 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       return url.toString();
     } catch {
       return configuredUrl;
+    }
+  }
+
+  private extractConnectionHost(connectionString: string) {
+    try {
+      const url = new URL(connectionString);
+      return `${url.hostname}:${url.port || 'default'}`;
+    } catch {
+      return null;
     }
   }
 

@@ -1,26 +1,6 @@
-CREATE TABLE "NewsArticle" (
-  "id" TEXT NOT NULL,
-  "slug" TEXT NOT NULL,
-  "sourceName" TEXT NOT NULL,
-  "sourceUrl" TEXT NOT NULL,
-  "title" TEXT NOT NULL,
-  "excerpt" TEXT NOT NULL,
-  "summary" TEXT NOT NULL,
-  "keyPoints" JSONB NOT NULL,
-  "category" TEXT NOT NULL,
-  "imageUrl" TEXT NOT NULL,
-  "publishedAt" TIMESTAMP(3) NOT NULL,
-  "processedAt" TIMESTAMP(3) NOT NULL,
-  "copyrightOwner" TEXT NOT NULL,
-  "summaryOnly" BOOLEAN NOT NULL DEFAULT true,
-  "takedownEmail" TEXT NOT NULL,
-  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt" TIMESTAMP(3) NOT NULL,
+CREATE SCHEMA IF NOT EXISTS "aiverse_world";
 
-  CONSTRAINT "NewsArticle_pkey" PRIMARY KEY ("id")
-);
-
-CREATE TABLE "NewsPipelineRun" (
+CREATE TABLE IF NOT EXISTS "aiverse_world"."NewsPipelineRun" (
   "id" TEXT NOT NULL,
   "stage" TEXT NOT NULL,
   "status" TEXT NOT NULL,
@@ -36,8 +16,5 @@ CREATE TABLE "NewsPipelineRun" (
   CONSTRAINT "NewsPipelineRun_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "NewsArticle_sourceUrl_key" ON "NewsArticle"("sourceUrl");
-CREATE INDEX "NewsArticle_publishedAt_idx" ON "NewsArticle"("publishedAt" DESC);
-CREATE INDEX "NewsArticle_category_idx" ON "NewsArticle"("category");
-CREATE INDEX "NewsPipelineRun_createdAt_idx" ON "NewsPipelineRun"("createdAt" DESC);
-CREATE INDEX "NewsPipelineRun_status_idx" ON "NewsPipelineRun"("status");
+CREATE INDEX IF NOT EXISTS "NewsPipelineRun_createdAt_idx" ON "aiverse_world"."NewsPipelineRun"("createdAt" DESC);
+CREATE INDEX IF NOT EXISTS "NewsPipelineRun_status_idx" ON "aiverse_world"."NewsPipelineRun"("status");
