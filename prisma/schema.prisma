@@ -5,6 +5,8 @@ generator client {
 datasource db {
   provider = "postgresql"
   schemas  = ["aiverse_world"]
+  url       = env("DATABASE_URL")   // Used for NestJS API requests (Pooler)
+  directUrl = env("DIRECT_URL")  
 }
 
 model NewsSource {
