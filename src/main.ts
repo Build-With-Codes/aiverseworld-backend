@@ -8,6 +8,11 @@ import { AppModule } from './app.module';
 const bootstrapLogger = new Logger('Bootstrap');
 
 async function findAvailablePort(preferredPort: number) {
+  // In Render or production environments, always use the specified PORT
+  if (process.env.RENDER === 'true' || process.env.NODE_ENV === 'production') {
+    return preferredPort;
+  }
+  
   const fallbackEnabled =
     process.env.PORT_FALLBACK !== 'false' &&
     process.env.NODE_ENV !== 'production' &&
@@ -53,7 +58,8 @@ async function bootstrap() {
   const preferredPort = Number(process.env.PORT ?? 3001);
   const port = await findAvailablePort(preferredPort);
 
-  if (port !== preferredPort) {
+  // Only show warning in non-production environments when fallback actually happens
+  if (port !== preferredPort && process.env.RENDER !== 'true' && process.env.NODE_ENV !== 'production') {
     bootstrapLogger.warn(
       `Port ${preferredPort} is busy. Starting backend on fallback port ${port}. Set PORT to override or free the original port.`,
     );
