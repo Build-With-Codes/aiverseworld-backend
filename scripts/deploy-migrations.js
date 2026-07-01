@@ -5,6 +5,8 @@ const path = require('node:path');
 const { Client } = require('pg');
 
 const SCHEMA_NAME = 'aiverse_world';
+const ALLOW_UNREACHABLE = process.argv.includes('--allow-unreachable');
+const REACHABILITY_ERROR_CODES = ['P1001', 'P1002'];
 
 const BASELINE_MIGRATIONS = [
   {
@@ -90,6 +92,24 @@ function assertSuccess(result, label) {
   }
 }
 
+function isReachabilityError(output) {
+  return REACHABILITY_ERROR_CODES.some((code) => output.includes(code));
+}
+
+function warnAndAllowUnreachable(output) {
+  if (!ALLOW_UNREACHABLE || !isReachabilityError(output)) {
+    return false;
+  }
+
+  console.warn(
+    'Prisma migration database is unreachable. Continuing startup so the web service can bind its port.',
+  );
+  console.warn(
+    'Fix DIRECT_URL/DIRECT_DATABASE_URL or run `npm run prisma:migrate` from a network that can reach Postgres so required tables are created.',
+  );
+  return true;
+}
+
 async function getExistingTables(databaseUrl) {
   const client = new Client({ connectionString: databaseUrl });
 
@@ -169,6 +189,9 @@ async function main() {
   if (!output.includes('P3005')) {
     process.stdout.write(firstDeploy.stdout ?? '');
     process.stderr.write(firstDeploy.stderr ?? '');
+    if (warnAndAllowUnreachable(output)) {
+      return;
+    }
     process.exit(firstDeploy.status ?? 1);
   }
 
