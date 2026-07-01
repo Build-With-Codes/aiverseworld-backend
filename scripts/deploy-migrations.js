@@ -122,6 +122,10 @@ function getMigrationsToBaseline(existingTables) {
     // ✅ Robust fix: Check all elements continuously instead of completely halting mid-chain
     if (allTablesExist) {
       migrations.push(migration.name);
+    } else {
+      // Log which tables are missing for this migration
+      const missingTables = migration.tables.filter(table => !existingTables.has(table));
+      console.log(`⚠️  Migration ${migration.name} missing tables: ${missingTables.join(', ')}`);
     }
   }
   return migrations;
