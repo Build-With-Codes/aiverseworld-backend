@@ -26,6 +26,10 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
     'EnglishTutorSession',
     'EnglishTutorTurn',
     'EnglishTutorMistake',
+    'Problem',
+    'AiToolSource',
+    'AiTool',
+    'AiToolEmbedding',
   ];
   private available = false;
   private pool: Pool | null = null;
@@ -81,7 +85,7 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       this.lastError = null;
       await this.ensureAppSchema();
       await this.loadDatabaseDiagnostics();
-      this.logger.log('Prisma connected. News persistence is enabled.');
+      this.logger.log('Prisma connected. Persistence is enabled.');
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unknown Prisma connection error';
@@ -194,7 +198,7 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       this.lastError = null;
       await this.ensureAppSchema();
       await this.loadDatabaseDiagnostics();
-      this.logger.log('Prisma reconnected. News persistence is enabled again.');
+      this.logger.log('Prisma reconnected. Persistence is enabled again.');
       return true;
     } catch (error) {
       const message =
@@ -275,7 +279,7 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
     }
 
     this.logger.warn(
-      'Development mode detected. Running `prisma db push` automatically because news tables are missing.',
+      'Development mode detected. Running `prisma db push` automatically because required tables are missing.',
     );
 
     const result =

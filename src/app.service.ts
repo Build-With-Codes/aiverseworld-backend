@@ -14,6 +14,11 @@ export class AppService {
         '/api/news/refresh',
         '/api/news/refresh/cron',
         '/api/games/draw-guess',
+        '/api/problems',
+        '/api/tools',
+        '/api/tools/recommend',
+        '/api/tools/recommend/rag',
+        '/api/tools/rag/reindex',
       ],
     };
   }

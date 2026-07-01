@@ -31,6 +31,37 @@
 $ npm install
 ```
 
+## AiverseWorld configuration
+
+The AI tool catalog is stored in Postgres, while AI Finder RAG vectors are stored in Pinecone.
+
+Required database variables:
+
+```bash
+DATABASE_URL="postgresql://..."
+DIRECT_URL="postgresql://..."
+```
+
+Required Pinecone variables for AI Finder RAG and tool vector imports:
+
+```bash
+PINECONE_API_KEY="..."
+PINECONE_INDEX_NAME="aiverseworld-ai-tools"
+PINECONE_NAMESPACE="ai-tools"
+AI_TOOL_EMBEDDING_DIMENSION="1024"
+```
+
+The current local embedding provider uses `local-hash-embedding-v1`, so create or target a Pinecone index with dimension `1024` and metric `cosine`. Set `PINECONE_INDEX_HOST` only when you want to target a specific Pinecone host directly.
+
+For OpenRouter AI Finder reranking, set `OPENROUTER_MODEL=openrouter/free` to let the backend fetch available free OpenRouter models and send them with fallback routing.
+
+Catalog import and vector reindex commands:
+
+```bash
+npm run tools:import
+npm run tools:reindex
+```
+
 ## Compile and run the project
 
 ```bash

@@ -333,7 +333,15 @@ export class NewsService {
       database,
       remoteFetchEnabled: process.env.NEWS_DISABLE_REMOTE_FETCH !== 'true',
       pipeline: ['sources', 'raw_articles', 'deduplication', 'ai_articles', 'api'],
-      tables: ['news_sources', 'raw_articles', 'ai_articles', 'news_pipeline_run'],
+      tables: [
+        'NewsSource',
+        'RawArticle',
+        'AiArticle',
+        'NewsPipelineRun',
+        'Problem',
+        'AiToolSource',
+        'AiTool',
+      ],
     };
   }
 

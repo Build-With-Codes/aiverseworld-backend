@@ -152,3 +152,115 @@ model EnglishTutorMistake {
   @@index([mistake])
   @@schema("aiverse_world")
 }
+
+model Problem {
+  id             String   @id @default(cuid())
+  title          String
+  description    String   @db.Text
+  industry       String
+  frequency      String
+  painScore      Int
+  email          String?
+  aiSolvable     Int      @default(0)
+  notAiSolvable  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([createdAt(sort: Desc)])
+  @@index([industry])
+  @@index([painScore])
+  @@schema("aiverse_world")
+}
+
+model AiToolSource {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  type        String
+  baseUrl     String?
+  isActive    Boolean  @default(true)
+  lastSyncedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tools       AiTool[]
+
+  @@schema("aiverse_world")
+}
+
+model AiTool {
+  id                String   @id @default(cuid())
+  sourceId          String?
+  rank              Int?
+  name              String
+  slug              String   @unique
+  category          String
+  subcategory       String
+  company           String
+  website           String
+  domain            String
+  favicon           String
+  logoUrl           String?
+  freePlan          String
+  freeTrial         Boolean  @default(false)
+  pricingModel      String
+  startingPriceUsd  Float?
+  pricingNotes      String?
+  shortDescription  String   @db.Text
+  summary           String?  @db.Text
+  features          Json
+  bestFor           Json
+  targetAudience    Json
+  tags              Json
+  aiType            Json
+  modalities        Json
+  modelProvider     Json
+  modelNames        Json?
+  apiAvailable      Boolean  @default(false)
+  openSource        Boolean  @default(false)
+  deploymentType    Json
+  platforms         Json
+  integrations      Json?
+  teamCollaboration Boolean?
+  security          Json?
+  privacyNotes      String?  @db.Text
+  popularityScore   Int?
+  rating            Float?
+  reviewCount       Int?
+  status            String   @default("Active")
+  launchYear        Int?
+  lastVerified      DateTime?
+  sourceUrl         String
+  sourceType        String
+  searchText        String   @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  source            AiToolSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  embeddings        AiToolEmbedding[]
+
+  @@index([category])
+  @@index([pricingModel])
+  @@index([popularityScore])
+  @@index([rating])
+  @@index([updatedAt(sort: Desc)])
+  @@schema("aiverse_world")
+}
+
+model AiToolEmbedding {
+  id              String   @id @default(cuid())
+  toolId          String
+  chunkIndex      Int
+  content         String   @db.Text
+  contentHash     String
+  embedding       Json
+  embeddingModel  String
+  metadata        Json?
+  sourceUpdatedAt DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  tool            AiTool   @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([toolId, chunkIndex])
+  @@index([toolId])
+  @@index([contentHash])
+  @@index([updatedAt(sort: Desc)])
+  @@schema("aiverse_world")
+}

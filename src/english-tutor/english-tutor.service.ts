@@ -1,4 +1,8 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import type {
@@ -14,18 +18,78 @@ const fillerWords = ['um', 'uh', 'like', 'actually', 'basically'];
 const realtimeModel = process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime';
 const realtimeVoice = process.env.OPENAI_REALTIME_VOICE ?? 'marin';
 
+function resolveOpenRouterChatUrl() {
+  const configuredUrl = process.env.OPENROUTER_BASE_URL?.trim();
+
+  if (!configuredUrl) {
+    return 'https://openrouter.ai/api/v1/chat/completions';
+  }
+
+  if (configuredUrl.endsWith('/chat/completions')) {
+    return configuredUrl;
+  }
+
+  if (configuredUrl.endsWith('/api/v1')) {
+    return `${configuredUrl}/chat/completions`;
+  }
+
+  if (configuredUrl.endsWith('/api/v1/')) {
+    return `${configuredUrl}chat/completions`;
+  }
+
+  const normalizedBase = configuredUrl.replace(/\/+$/, '');
+
+  if (normalizedBase.endsWith('/api')) {
+    return `${normalizedBase}/v1/chat/completions`;
+  }
+
+  return `${normalizedBase}/api/v1/chat/completions`;
+}
+
+function getOpenRouterModels() {
+  const configuredModel = process.env.OPENROUTER_MODEL?.trim();
+  const fallbackModels = [
+    'nex-agi/nex-n2-pro:free',
+    'nvidia/nemotron-3-ultra-550b-a55b:free',
+  ];
+
+  return Array.from(
+    new Set(
+      [configuredModel, ...fallbackModels].filter(
+        (value): value is string => Boolean(value),
+      ),
+    ),
+  );
+}
+
 @Injectable()
 export class EnglishTutorService {
+  private readonly logger = new Logger(EnglishTutorService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
-  createTurn(request: EnglishTutorTurnRequest): EnglishTutorTurnResponse {
+  async createTurn(
+    request: EnglishTutorTurnRequest,
+  ): Promise<EnglishTutorTurnResponse> {
     const transcript = this.normalizeTranscript(request.transcript);
     const focus = request.focus?.trim() || 'Daily conversation';
     const correction = this.buildCorrection(transcript);
     const score = this.scoreTranscript(transcript, correction);
+    const sessionId = request.sessionId || crypto.randomUUID();
+    const openRouterTurn = await this.createOpenRouterTurn({
+      transcript,
+      focus,
+      correction,
+      score,
+      sessionId,
+    });
+
+    if (openRouterTurn) {
+      return openRouterTurn;
+    }
 
     return {
-      sessionId: request.sessionId || crypto.randomUUID(),
+      sessionId,
       transcript,
       reply: this.buildReply(transcript, correction, focus),
       correction,
@@ -33,6 +97,102 @@ export class EnglishTutorService {
       focus,
       nextQuestion: this.nextQuestionForFocus(focus),
     };
+  }
+
+  private async createOpenRouterTurn(input: {
+    transcript: string;
+    focus: string;
+    correction: string;
+    score: number;
+    sessionId: string;
+  }): Promise<EnglishTutorTurnResponse | null> {
+    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+
+    if (!apiKey || !input.transcript) {
+      return null;
+    }
+
+    const openRouterUrl = resolveOpenRouterChatUrl();
+
+    for (const model of getOpenRouterModels()) {
+      try {
+        const response = await fetch(openRouterUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer':
+              process.env.OPENROUTER_SITE_URL ?? 'https://aiverseworld.com',
+            'X-OpenRouter-Title':
+              process.env.OPENROUTER_APP_NAME ?? 'AiverseWorld English Tutor',
+          },
+          body: JSON.stringify({
+            model,
+            temperature: 0.35,
+            max_tokens: 220,
+            response_format: { type: 'json_object' },
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are a warm, concise English speaking tutor. Return JSON only with these string keys: reply, correction, nextQuestion. Keep reply under 45 words. Correct grammar naturally and explain briefly. Do not shame the learner.',
+              },
+              {
+                role: 'user',
+                content: JSON.stringify({
+                  focus: input.focus,
+                  learnerSentence: input.transcript,
+                  localCorrection: input.correction,
+                }),
+              },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          this.logger.warn(
+            `OpenRouter returned HTTP ${response.status} for English tutor with model=${model}. Trying fallback if available.`,
+          );
+          continue;
+        }
+
+        const payload = (await response.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+        };
+        const content = payload.choices?.[0]?.message?.content?.trim();
+
+        if (!content) {
+          continue;
+        }
+
+        const parsed = JSON.parse(content) as {
+          reply?: string;
+          correction?: string;
+          nextQuestion?: string;
+        };
+
+        return {
+          sessionId: input.sessionId,
+          transcript: input.transcript,
+          reply:
+            parsed.reply?.trim() ||
+            this.buildReply(input.transcript, input.correction, input.focus),
+          correction: parsed.correction?.trim() || input.correction,
+          score: input.score,
+          focus: input.focus,
+          nextQuestion:
+            parsed.nextQuestion?.trim() || this.nextQuestionForFocus(input.focus),
+        };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown OpenRouter error';
+        this.logger.warn(
+          `OpenRouter tutor request failed with model=${model}: ${message}. Trying fallback if available.`,
+        );
+      }
+    }
+
+    return null;
   }
 
   async createRealtimeSession(
@@ -57,7 +217,11 @@ export class EnglishTutorService {
 
     if (!apiKey) {
       throw new ServiceUnavailableException(
-        'OPENAI_API_KEY is not configured for realtime voice.',
+        {
+          code: 'OPENAI_API_KEY_MISSING',
+          error:
+            'OPENAI_API_KEY is not configured in the backend service. Realtime voice cannot start without it.',
+        },
       );
     }
 
@@ -110,7 +274,10 @@ export class EnglishTutorService {
     const answerSdp = await response.text();
 
     if (!response.ok) {
-      throw new ServiceUnavailableException(answerSdp);
+      throw new ServiceUnavailableException({
+        code: 'OPENAI_REALTIME_CALL_FAILED',
+        error: answerSdp,
+      });
     }
 
     return {

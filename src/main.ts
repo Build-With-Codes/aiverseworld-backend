@@ -39,8 +39,7 @@ async function findAvailablePort(preferredPort: number) {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('api/aiverseworld-backend');
-  app.use('/api/aiverseworld-backend/english-tutor/realtime-call', express.text({ type: '*/*' }));
+  app.use('/api/english-tutor/realtime-call', express.text({ type: '*/*' }));
   app.enableCors({
     origin: process.env.CORS_ORIGIN?.split(',').map((value) => value.trim()) ?? [
       'http://localhost:3000',
