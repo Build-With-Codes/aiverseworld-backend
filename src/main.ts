@@ -65,7 +65,7 @@ async function bootstrap() {
     );
   }
 
-  await app.listen(port, '0.0.0.0');
+  await app.listen(port);
   bootstrapLogger.log(`Backend listening on port ${port}`);
 }
 bootstrap();
