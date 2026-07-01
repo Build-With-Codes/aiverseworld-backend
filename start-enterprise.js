@@ -56,8 +56,8 @@ tempServer.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Temporary server listening on port ${PORT} for Render health checks`);
   console.log('🗄️  Starting database migrations...');
   
-  // Step 2: Run migrations (blocking) with pooler optimization
-  const migrationResult = spawnSync('node', ['scripts/deploy-migrations-pooler.js'], {
+  // Step 2: Run migrations with final fix approach
+  const migrationResult = spawnSync('node', ['scripts/final-migration-fix.js'], {
     stdio: 'inherit',
     env: process.env,
     encoding: 'utf8'
@@ -65,33 +65,23 @@ tempServer.listen(PORT, '0.0.0.0', () => {
   
   if (migrationResult.status !== 0) {
     console.warn(`⚠️  Database migrations failed with code: ${migrationResult.status}`);
-    console.warn('This is common in cloud environments. The error was:');
-    console.warn('P1001: Can\'t reach database server at db.maemusryvekzmrfispra.supabase.co:5432');
-    console.warn('');
-    console.warn('Possible reasons:');
-    console.warn('1. Supabase direct connection (port 5432) not accessible from Render');
-    console.warn('2. IP address not whitelisted in Supabase');
-    console.warn('3. Need to use Supabase connection pooler (port 6543) instead');
-    console.warn('');
-    console.warn('Checking if we can start application with existing tables...');
+    console.warn('Migrations cannot connect to database. Attempting to create missing tables directly...');
     
-    // Run the connection check script
-    const checkResult = spawnSync('node', ['scripts/check-connections.js'], {
-      stdio: 'pipe',
+    // Try to create missing tables using the working runtime connection
+    console.log('🛠️  Creating missing tables directly using DATABASE_URL...');
+    const createTablesResult = spawnSync('node', ['scripts/create-missing-tables.js'], {
+      stdio: 'inherit',
       env: process.env,
       encoding: 'utf8'
     });
     
-    if (checkResult.stdout) {
-      console.log(checkResult.stdout.toString());
+    if (createTablesResult.status === 0) {
+      console.log('✅ Missing tables created successfully');
+    } else {
+      console.warn('⚠️  Could not create missing tables. Application will start with limited functionality.');
     }
     
-    if (checkResult.status !== 0 && checkResult.stderr) {
-      console.error('Connection check errors:', checkResult.stderr.toString());
-    }
-    
-    console.warn('⚠️  Starting application with potentially incomplete database...');
-    console.warn('⚠️  Some features may not work until database connection is fixed.');
+    console.warn('🚀 Starting application...');
   } else {
     console.log('✅ Database migrations completed successfully');
   }
