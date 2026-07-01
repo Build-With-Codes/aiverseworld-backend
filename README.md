@@ -85,7 +85,7 @@ Build Command: npm install && npm run build
 Start Command: npm start
 ```
 
-`npm start` runs the compiled `dist/main.js` file. Do not use `nest start` as the Render start command because it loads the Nest CLI/compiler in production and can exceed the small instance heap limit.
+`npm start` runs `prisma migrate deploy` and then starts the compiled `dist/main.js` file. Do not use `nest start` as the Render start command because it loads the Nest CLI/compiler in production and can exceed the small instance heap limit.
 
 ## Run tests
 
