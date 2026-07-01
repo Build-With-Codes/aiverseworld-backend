@@ -45,10 +45,11 @@ function withSchema(raw) {
 }
 
 function getDatabaseUrl() {
-  const raw = process.env.DATABASE_URL;
+  // Use DIRECT_URL for migrations, fallback to DATABASE_URL
+  const raw = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
   if (!raw) {
     throw new Error(
-      'DATABASE_URL is required to deploy Prisma migrations.',
+      'DIRECT_URL or DATABASE_URL is required to deploy Prisma migrations.',
     );
   }
   return withSchema(raw);

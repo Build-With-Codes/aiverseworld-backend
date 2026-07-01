@@ -16,8 +16,10 @@ function withSchema(raw: string | undefined) {
 const isMigrationCmd = 
   process.argv.some(arg => arg.includes('migrate') || arg.includes('db'));
 
-// 🚀 ALWAYS use DATABASE_URL for everything (migrations, runtime, etc.)
-const rawConnectionString = process.env['DATABASE_URL'];
+// 🚀 Use DIRECT_URL for migrations, DATABASE_URL for runtime
+const rawConnectionString = isMigrationCmd
+  ? (process.env['DIRECT_URL'] ?? process.env['DATABASE_URL'])
+  : process.env['DATABASE_URL'];
 
 if (!rawConnectionString) {
   throw new Error("Missing required database connection string environment variable.");
