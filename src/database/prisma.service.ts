@@ -85,7 +85,13 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       this.lastError = null;
       await this.ensureAppSchema();
       await this.loadDatabaseDiagnostics();
-      this.logger.log('Prisma connected. Persistence is enabled.');
+      if (this.available) {
+        this.logger.log('Prisma connected. Persistence is enabled.');
+      } else {
+        this.logger.warn(
+          `Prisma connected, but persistence is not ready: ${this.lastError ?? 'database diagnostics failed'}`,
+        );
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unknown Prisma connection error';
