@@ -8,7 +8,10 @@ import { AppModule } from './app.module';
 const bootstrapLogger = new Logger('Bootstrap');
 
 async function findAvailablePort(preferredPort: number) {
-  const fallbackEnabled = process.env.PORT_FALLBACK !== 'false';
+  const fallbackEnabled =
+    process.env.PORT_FALLBACK !== 'false' &&
+    process.env.NODE_ENV !== 'production' &&
+    process.env.RENDER !== 'true';
   const maxAttempts = fallbackEnabled ? 10 : 1;
 
   for (let offset = 0; offset < maxAttempts; offset += 1) {

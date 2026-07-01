@@ -66,14 +66,26 @@ npm run tools:reindex
 
 ```bash
 # development
-$ npm run start
+$ npm run start:nest
 
 # watch mode
 $ npm run start:dev
 
 # production mode
+$ npm run build
 $ npm run start:prod
 ```
+
+## Render deployment
+
+Use these commands on Render:
+
+```bash
+Build Command: npm install && npm run build
+Start Command: npm start
+```
+
+`npm start` runs the compiled `dist/main.js` file. Do not use `nest start` as the Render start command because it loads the Nest CLI/compiler in production and can exceed the small instance heap limit.
 
 ## Run tests
 
