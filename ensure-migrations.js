@@ -7,14 +7,12 @@ const path = require('node:path');
 
 console.log('=== Ensuring database migrations are applied ===');
 
-const prismaPath = path.join(__dirname, 'node_modules', '.bin', 'prisma.cmd');
-
 // First, check migration status
 console.log('\nChecking migration status...');
-const statusResult = spawnSync(prismaPath, ['migrate', 'status'], {
+const statusResult = spawnSync('npx', ['prisma', 'migrate', 'status'], {
   stdio: 'pipe',
   cwd: __dirname,
-  shell: true,
+  shell: false,
   encoding: 'utf8'
 });
 
