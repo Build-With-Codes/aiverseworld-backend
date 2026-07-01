@@ -22,8 +22,9 @@ function getDatabaseUrl() {
 }
 
 function runCommand(command, args, options = {}) {
-  const spawnCommand = process.platform === 'win32' ? 'cmd.exe' : command;
-  const spawnArgs = process.platform === 'win32' 
+  const isWindows = process.platform === 'win32';
+  const spawnCommand = isWindows ? 'cmd.exe' : command;
+  const spawnArgs = isWindows 
     ? ['/d', '/c', ['call', command, ...args].join(' ')]
     : args;
     
@@ -5364,10 +5365,7 @@ async function main() {
   try {
     // Step 1: Run migrations
     console.log('\n=== Step 1: Running database migrations ===');
-    const migrateResult = runCommand(
-      path.join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'prisma.cmd' : 'prisma'),
-      ['migrate', 'deploy']
-    );
+    const migrateResult = runCommand('npx', ['prisma', 'migrate', 'deploy']);
 
     if (migrateResult.status !== 0) {
       console.error('Migrations failed, trying with --allow-unreachable flag');

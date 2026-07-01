@@ -10,12 +10,11 @@ console.log('=== Starting Aiverse World Backend with Data Import ===');
 
 // Run migrations first
 console.log('\n[1/3] Running database migrations...');
-const prismaPath = path.join(__dirname, 'node_modules', '.bin', 'prisma.cmd');
 
-const migrateProcess = spawn(prismaPath, ['migrate', 'deploy'], {
+const migrateProcess = spawn('npx', ['prisma', 'migrate', 'deploy'], {
   stdio: 'inherit',
   cwd: __dirname,
-  shell: true
+  shell: false
 });
 
 migrateProcess.on('close', (migrateCode) => {
@@ -23,10 +22,10 @@ migrateProcess.on('close', (migrateCode) => {
     console.error(`Migrations failed with code ${migrateCode}`);
     console.log('Trying with --allow-unreachable flag...');
     
-    const migrateAllowProcess = spawn(prismaPath, ['migrate', 'deploy', '--allow-unreachable'], {
+    const migrateAllowProcess = spawn('npx', ['prisma', 'migrate', 'deploy', '--allow-unreachable'], {
       stdio: 'inherit',
       cwd: __dirname,
-      shell: true
+      shell: false
     });
 
     migrateAllowProcess.on('close', (allowCode) => {
