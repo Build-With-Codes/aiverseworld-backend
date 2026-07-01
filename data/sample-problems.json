@@ -1,0 +1,20 @@
+[
+  {
+    "title": "Code documentation takes too much time",
+    "description": "Developers spend excessive time writing and maintaining documentation instead of coding.",
+    "industry": "Software Development",
+    "frequency": "Daily",
+    "painScore": 8,
+    "aiSolvable": 10,
+    "notAiSolvable": 2
+  },
+  {
+    "title": "Meeting notes organization",
+    "description": "Important information from meetings gets lost or buried in long transcripts.",
+    "industry": "All Industries",
+    "frequency": "Weekly",
+    "painScore": 7,
+    "aiSolvable": 12,
+    "notAiSolvable": 3
+  }
+]

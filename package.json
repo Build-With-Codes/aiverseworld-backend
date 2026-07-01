@@ -7,8 +7,9 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "npm run prisma:generate && nest build",
-    "start": "node start-final.js",
+    "start": "node start-with-data.js",
     "start:legacy": "npm run prisma:migrate:startup && node dist/main",
+    "start:simple": "node start-final.js",
     "start:nest": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
@@ -22,6 +23,7 @@
     "prisma:migrate": "node scripts/deploy-migrations.js",
     "prisma:migrate:startup": "node scripts/deploy-migrations.js --allow-unreachable",
     "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:with-data": "node scripts/deploy-with-data.js",
     "prisma:push:dev": "prisma db push --accept-data-loss",
     "prisma:studio": "prisma studio",
     "tools:import": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" scripts/import-ai-tools.ts",
