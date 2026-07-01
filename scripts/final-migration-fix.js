@@ -31,37 +31,14 @@ function runPrisma(args) {
   });
 }
 
-// First, try with DIRECT_URL (original behavior)
-console.log('1️⃣ Trying migrations with DIRECT_URL...');
-let result = runPrisma(['migrate', 'deploy']);
+// Always use DATABASE_URL for migrations
+console.log('🚀 Running migrations with DATABASE_URL...');
+const result = runPrisma(['migrate', 'deploy']);
 
 if (result.status === 0) {
-  console.log('✅ Migrations successful with DIRECT_URL');
+  console.log('✅ Migrations successful with DATABASE_URL');
   process.exit(0);
 }
-
-console.log('❌ DIRECT_URL migrations failed');
-console.log('2️⃣ Trying with DATABASE_URL instead...');
-
-// Create a temporary environment with DATABASE_URL as the migration URL
-const tempEnv = {
-  ...process.env,
-  // Temporarily set DIRECT_URL to DATABASE_URL for migrations
-  DIRECT_URL: process.env.DATABASE_URL,
-  // Also set DIRECT_DATABASE_URL if DATABASE_URL doesn't work
-  DIRECT_DATABASE_URL: process.env.DATABASE_URL,
-};
-
-result = spawnSync(
-  path.join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'prisma.cmd' : 'prisma'),
-  ['migrate', 'deploy'],
-  {
-    cwd: process.cwd(),
-    env: tempEnv,
-    encoding: 'utf8',
-    stdio: 'inherit',
-  }
-);
 
 if (result.status === 0) {
   console.log('✅ Migrations successful using DATABASE_URL');

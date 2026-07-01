@@ -9,60 +9,26 @@ const { Client } = require('pg');
 console.log('🔌 Testing Supabase Connections from Render');
 console.log('===========================================\n');
 
-// Test direct connection (port 5432)
-async function testDirectConnection() {
-  const directUrl = process.env.DIRECT_URL;
-  if (!directUrl) {
-    console.log('❌ DIRECT_URL not set');
+// Test DATABASE_URL connection
+async function testDatabaseUrlConnection() {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    console.log('❌ DATABASE_URL not set');
     return false;
   }
   
-  console.log(`Testing DIRECT_URL: ${directUrl.replace(/:[^:]*?@/, ':****@')}`);
+  console.log(`Testing DATABASE_URL: ${databaseUrl.replace(/:[^:]*?@/, ':****@')}`);
   
-  const client = new Client({ connectionString: directUrl });
+  const client = new Client({ connectionString: databaseUrl });
   
   try {
     await client.connect();
     const result = await client.query('SELECT 1 as test');
-    console.log('✅ Direct connection (5432): SUCCESS');
+    console.log('✅ DATABASE_URL connection: SUCCESS');
     await client.end();
     return true;
   } catch (error) {
-    console.log(`❌ Direct connection (5432): FAILED - ${error.message}`);
-    await client.end().catch(() => {});
-    return false;
-  }
-}
-
-// Test pooler connection (port 6543)
-async function testPoolerConnection() {
-  // Try to create pooler URL from direct URL
-  const directUrl = process.env.DIRECT_URL;
-  if (!directUrl) {
-    console.log('❌ Cannot test pooler - no DIRECT_URL');
-    return false;
-  }
-  
-  // Convert port 5432 to 6543
-  let poolerUrl = directUrl.replace(':5432/', ':6543/');
-  
-  // If no port specified, add pooler port
-  if (!directUrl.includes(':5432') && !directUrl.includes(':6543')) {
-    poolerUrl = directUrl.replace('supabase.co/', 'supabase.co:6543/');
-  }
-  
-  console.log(`Testing pooler URL: ${poolerUrl.replace(/:[^:]*?@/, ':****@')}`);
-  
-  const client = new Client({ connectionString: poolerUrl });
-  
-  try {
-    await client.connect();
-    const result = await client.query('SELECT 1 as test');
-    console.log('✅ Pooler connection (6543): SUCCESS');
-    await client.end();
-    return true;
-  } catch (error) {
-    console.log(`❌ Pooler connection (6543): FAILED - ${error.message}`);
+    console.log(`❌ DATABASE_URL connection: FAILED - ${error.message}`);
     await client.end().catch(() => {});
     return false;
   }

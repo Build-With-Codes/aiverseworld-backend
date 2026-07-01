@@ -45,10 +45,10 @@ function withSchema(raw) {
 }
 
 function getDatabaseUrl() {
-  const raw = process.env.DIRECT_URL ?? process.env.DIRECT_DATABASE_URL;
+  const raw = process.env.DATABASE_URL;
   if (!raw) {
     throw new Error(
-      'DIRECT_URL or DIRECT_DATABASE_URL is required to deploy Prisma migrations. Runtime DATABASE_URL is intentionally not used for migrations.',
+      'DATABASE_URL is required to deploy Prisma migrations.',
     );
   }
   return withSchema(raw);
@@ -91,7 +91,7 @@ function warnAndAllowUnreachable(output) {
     return false;
   }
   console.warn('Prisma migration database is unreachable. Continuing startup because ALLOW_UNREACHABLE_MIGRATIONS=true.');
-  console.warn('Fix DIRECT_URL/DIRECT_DATABASE_URL or run migrations from an authorized network node.');
+  console.warn('Fix DATABASE_URL or run migrations from an authorized network node.');
   return true;
 }
 

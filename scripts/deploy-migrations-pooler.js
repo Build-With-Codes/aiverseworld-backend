@@ -13,7 +13,7 @@ const SCHEMA_NAME = 'aiverse_world';
 
 console.log('🔧 Starting migrations with pooler optimization...');
 console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-console.log(`🌐 Using: ${process.env.DIRECT_URL ? 'DIRECT_URL' : process.env.DIRECT_DATABASE_URL ? 'DIRECT_DATABASE_URL' : 'DATABASE_URL'}`);
+console.log(`🌐 Using: DATABASE_URL`);
 
 // Check connection type
 function checkConnectionType(connectionString) {
@@ -29,20 +29,18 @@ function checkConnectionType(connectionString) {
 }
 
 function getDatabaseUrl() {
-  const raw = process.env.DIRECT_URL ?? process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
+  const raw = process.env.DATABASE_URL;
   if (!raw) {
-    throw new Error('No database connection string found in environment variables.');
+    throw new Error('DATABASE_URL not found in environment variables.');
   }
   
   const connType = checkConnectionType(raw);
   console.log(`🔌 Connection type: ${connType}`);
   
   if (connType === 'pooler') {
-    console.log('⚠️  Using connection pooler for migrations');
-    console.log('   Ensure pooler is in "Session mode" for DDL operations');
+    console.log('✅ Using connection pooler for migrations');
   } else if (connType === 'direct') {
-    console.log('⚠️  Using direct connection for migrations');
-    console.log('   This may fail if IP is not whitelisted in Supabase');
+    console.log('⚠️  Using direct connection for migrations (may fail in cloud)');
   }
   
   return withSchema(raw);
