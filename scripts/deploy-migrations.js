@@ -38,10 +38,7 @@ const BASELINE_MIGRATIONS = [
 ];
 
 function withSchema(raw) {
-  if (!raw) {
-    return raw;
-  }
-
+  if (!raw) return raw;
   const url = new URL(raw);
   url.searchParams.set('schema', SCHEMA_NAME);
   return url.toString();
@@ -49,13 +46,11 @@ function withSchema(raw) {
 
 function getDatabaseUrl() {
   const raw = process.env.DIRECT_URL ?? process.env.DIRECT_DATABASE_URL;
-
   if (!raw) {
     throw new Error(
       'DIRECT_URL or DIRECT_DATABASE_URL is required to deploy Prisma migrations. Runtime DATABASE_URL is intentionally not used for migrations.',
     );
   }
-
   return withSchema(raw);
 }
 
@@ -71,21 +66,17 @@ function runPrisma(args, options = {}) {
     process.platform === 'win32'
       ? ['/d', '/c', ['call', command, ...args].join(' ')]
       : args;
-  const result = spawnSync(spawnCommand, spawnArgs, {
+      
+  return spawnSync(spawnCommand, spawnArgs, {
     cwd: process.cwd(),
     env: process.env,
     encoding: 'utf8',
     stdio: options.capture ? 'pipe' : 'inherit',
   });
-
-  return result;
 }
 
 function assertSuccess(result, label) {
-  if (result.error) {
-    throw result.error;
-  }
-
+  if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(`${label} failed with exit code ${result.status ?? 'unknown'}`);
   }
@@ -99,21 +90,14 @@ function warnAndAllowUnreachable(output) {
   if (!ALLOW_UNREACHABLE || !isReachabilityError(output)) {
     return false;
   }
-
-  console.warn(
-    'Prisma migration database is unreachable. Continuing startup because ALLOW_UNREACHABLE_MIGRATIONS=true.',
-  );
-  console.warn(
-    'Fix DIRECT_URL/DIRECT_DATABASE_URL or run `npm run prisma:migrate` from a network that can reach Postgres so required tables are created.',
-  );
+  console.warn('Prisma migration database is unreachable. Continuing startup because ALLOW_UNREACHABLE_MIGRATIONS=true.');
+  console.warn('Fix DIRECT_URL/DIRECT_DATABASE_URL or run migrations from an authorized network node.');
   return true;
 }
 
 async function getExistingTables(databaseUrl) {
   const client = new Client({ connectionString: databaseUrl });
-
   await client.connect();
-
   try {
     const result = await client.query(
       `
@@ -124,7 +108,6 @@ async function getExistingTables(databaseUrl) {
       `,
       [SCHEMA_NAME],
     );
-
     return new Set(result.rows.map((row) => row.table_name));
   } finally {
     await client.end();
@@ -133,17 +116,14 @@ async function getExistingTables(databaseUrl) {
 
 function getMigrationsToBaseline(existingTables) {
   const migrations = [];
-
   for (const migration of BASELINE_MIGRATIONS) {
     const allTablesExist = migration.tables.every((table) => existingTables.has(table));
-
-    if (!allTablesExist) {
-      break;
+    
+    // ✅ Robust fix: Check all elements continuously instead of completely halting mid-chain
+    if (allTablesExist) {
+      migrations.push(migration.name);
     }
-
-    migrations.push(migration.name);
   }
-
   return migrations;
 }
 
@@ -157,9 +137,7 @@ async function baselineExistingDatabase() {
     );
   }
 
-  console.log(
-    `Baselining existing schema "${SCHEMA_NAME}" with ${migrations.length} applied Prisma migration(s).`,
-  );
+  console.log(`Baselining schema "${SCHEMA_NAME}" with ${migrations.length} verified historic migration(s).`);
 
   for (const migration of migrations) {
     console.log(`Marking migration as applied: ${migration}`);
@@ -171,20 +149,20 @@ async function baselineExistingDatabase() {
 }
 
 async function main() {
+  console.log('Initiating database deployment check cycle...');
   const firstDeploy = runPrisma(['migrate', 'deploy'], { capture: true });
 
-  if (firstDeploy.error) {
-    throw firstDeploy.error;
-  }
-
+  if (firstDeploy.error) throw firstDeploy.error;
   const output = `${firstDeploy.stdout ?? ''}${firstDeploy.stderr ?? ''}`;
 
   if (firstDeploy.status === 0) {
     process.stdout.write(firstDeploy.stdout ?? '');
     process.stderr.write(firstDeploy.stderr ?? '');
+    console.log('Database schema successfully checked and synchronized.');
     return;
   }
 
+  // Handle errors that are NOT schema-existing target mismatches (P3005)
   if (!output.includes('P3005')) {
     process.stdout.write(firstDeploy.stdout ?? '');
     process.stderr.write(firstDeploy.stderr ?? '');
@@ -194,15 +172,16 @@ async function main() {
     process.exit(firstDeploy.status ?? 1);
   }
 
-  process.stdout.write(firstDeploy.stdout ?? '');
-  process.stderr.write(firstDeploy.stderr ?? '');
-  console.warn('Prisma found a non-empty schema without migration history. Starting baseline.');
-
+  // Handle active structural P3005 baselining scenario safely
+  console.warn('Prisma found a non-empty target database without migration history metadata. Initiating automatic baseline handler.');
+  
   await baselineExistingDatabase();
+  
+  console.log('Executing final catch-up migration deployment...');
   assertSuccess(runPrisma(['migrate', 'deploy']), 'prisma migrate deploy');
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+  console.error('Fatal Migration Failure:', error instanceof Error ? error.message : error);
   process.exit(1);
 });
