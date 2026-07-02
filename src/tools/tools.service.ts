@@ -334,11 +334,54 @@ function isToolSort(value: string): value is ToolSort {
   return ['rank', 'popular', 'rating', 'newest'].includes(value);
 }
 
-function tokenize(value: string) {
+const recommendationStopWords = new Set([
+  'ai',
+  'an',
+  'and',
+  'app',
+  'apps',
+  'best',
+  'for',
+  'get',
+  'give',
+  'help',
+  'i',
+  'me',
+  'need',
+  'of',
+  'on',
+  'or',
+  'please',
+  'recommend',
+  'show',
+  'the',
+  'to',
+  'tool',
+  'tools',
+  'use',
+  'want',
+  'with',
+]);
+
+function normalizeRecommendationQuery(value: string) {
   return value
     .toLowerCase()
+    .replace(/\bvidoe\b/g, 'video')
+    .replace(/\bgeneratoe\b/g, 'generator')
+    .replace(/\bgenerater\b/g, 'generator')
+    .replace(/\bgenrator\b/g, 'generator')
+    .replace(/\bpdfs\b/g, 'pdf')
+    .replace(/\bdocs\b/g, 'documents');
+}
+
+function tokenize(value: string) {
+  const tokens = normalizeRecommendationQuery(value)
     .split(/[^a-z0-9]+/)
-    .filter((token) => token.length > 1);
+    .filter((token) => token.length > 1 && !recommendationStopWords.has(token));
+
+  return Array.from(
+    new Set(tokens.flatMap((token) => (token.endsWith('s') && token.length > 3 ? [token, token.slice(0, -1)] : [token]))),
+  );
 }
 
 function buildToolSearchText(input: {
@@ -449,17 +492,26 @@ export class ToolsService {
       });
     }
 
+    const normalizedSearch = normalizeRecommendationQuery(normalizedQuery);
+    const tokens = tokenize(normalizedSearch);
+
+    if (tokens.length === 0) {
+      return {
+        query: normalizedQuery,
+        data: [],
+      };
+    }
+
     const candidates = await this.getPrisma().aiTool.findMany({
-      where: this.buildWhere({ page: 1, limit, search: normalizedQuery, sort: 'popular' }),
+      where: this.buildRecommendationWhere(tokens),
       take: 80,
       orderBy: [{ popularityScore: 'desc' }, { rating: 'desc' }, { rank: 'asc' }],
     });
 
-    const tokens = tokenize(normalizedQuery);
     const scored = candidates
       .map((tool) => {
         const haystack = tool.searchText.toLowerCase();
-        const exactBoost = haystack.includes(normalizedQuery.toLowerCase()) ? 20 : 0;
+        const exactBoost = haystack.includes(normalizedSearch) ? 20 : 0;
         const tokenScore = tokens.reduce((score, token) => score + (haystack.includes(token) ? 10 : 0), 0);
         const qualityScore = (tool.popularityScore ?? 0) / 10 + (tool.rating ?? 0);
 
@@ -935,6 +987,22 @@ export class ToolsService {
     }
 
     return where;
+  }
+
+  private buildRecommendationWhere(tokens: string[]): Prisma.AiToolWhereInput {
+    const meaningfulTokens = tokens.slice(0, 12);
+
+    return {
+      OR: meaningfulTokens.flatMap((token) => [
+        { name: { contains: token, mode: 'insensitive' } },
+        { company: { contains: token, mode: 'insensitive' } },
+        { category: { contains: token, mode: 'insensitive' } },
+        { subcategory: { contains: token, mode: 'insensitive' } },
+        { shortDescription: { contains: token, mode: 'insensitive' } },
+        { summary: { contains: token, mode: 'insensitive' } },
+        { searchText: { contains: token, mode: 'insensitive' } },
+      ]),
+    };
   }
 
   private buildOrderBy(sort: ToolSort): Prisma.AiToolOrderByWithRelationInput[] {
