@@ -431,6 +431,7 @@ export class ToolRagRecommendationService {
         ? 'video generation text to video motion video creator'
         : '',
       filters.category ? filters.category : '',
+      filters.subcategory ? filters.subcategory : '',
       filters.platform ? filters.platform : '',
     ].filter(Boolean);
     const expandedQueries = Array.from(
@@ -1139,6 +1140,11 @@ export class ToolRagRecommendationService {
     }
 
     filters.category = this.detectCategory(tokens, normalizedQuery);
+    filters.subcategory = this.detectSubcategory(
+      tokens,
+      normalizedQuery,
+      filters.category,
+    );
 
     return filters;
   }
@@ -1300,6 +1306,124 @@ export class ToolRagRecommendationService {
 
     if (tokens.includes('automation') || tokens.includes('workflow')) {
       return 'Automation';
+    }
+
+    return undefined;
+  }
+
+  private detectSubcategory(
+    tokens: string[],
+    normalizedQuery: string,
+    category?: string,
+  ) {
+    const hasAny = (values: string[]) => tokens.some((token) => values.includes(token));
+
+    if (
+      category === 'Security' &&
+      hasAny([
+        'security',
+        'cybersecurity',
+        'hacking',
+        'hack',
+        'pentest',
+        'penetration',
+        'vulnerability',
+        'threat',
+        'malware',
+        'wifi',
+      ])
+    ) {
+      return 'App Security';
+    }
+
+    if (hasAny(['wifi', 'network', 'router', 'telecom'])) {
+      return 'Network AI';
+    }
+
+    if (hasAny(['shorts', 'reels', 'tiktok'])) {
+      return 'Short Video';
+    }
+
+    if (normalizedQuery.includes('text to video') || normalizedQuery.includes('text-to-video')) {
+      return 'Text-to-Video';
+    }
+
+    if (hasAny(['video', 'youtube'])) {
+      return 'Video Generator';
+    }
+
+    if (hasAny(['podcast'])) {
+      return 'Podcast Editor';
+    }
+
+    if (hasAny(['transcription', 'transcript'])) {
+      return 'Speech-to-Text';
+    }
+
+    if (hasAny(['voice', 'speech'])) {
+      return 'Voice Generation';
+    }
+
+    if (hasAny(['logo'])) {
+      return 'Logo Designer';
+    }
+
+    if (hasAny(['photo', 'image', 'thumbnail'])) {
+      return hasAny(['edit', 'editor', 'enhance', 'enhancer'])
+        ? 'Photo Editor'
+        : 'Text to Image';
+    }
+
+    if (hasAny(['prototype', 'prototyping', 'wireframe'])) {
+      return 'UI Prototyping';
+    }
+
+    if (hasAny(['design', 'poster', 'creative'])) {
+      return hasAny(['ui', 'ux']) ? 'UI/UX Design' : 'Design Tool';
+    }
+
+    if (hasAny(['code', 'coding', 'programming'])) {
+      return 'AI Code Editor';
+    }
+
+    if (hasAny(['workflow', 'automation', 'engine'])) {
+      return 'Workflow Engine';
+    }
+
+    if (hasAny(['email'])) {
+      return 'Email Writer';
+    }
+
+    if (hasAny(['copy', 'copywriting'])) {
+      return 'Copy Generator';
+    }
+
+    if (hasAny(['blog', 'write', 'writing'])) {
+      return 'AI Writing';
+    }
+
+    if (hasAny(['seo'])) {
+      return 'SEO Assistant';
+    }
+
+    if (hasAny(['meeting', 'notes'])) {
+      return 'Meeting Summary';
+    }
+
+    if (hasAny(['payment'])) {
+      return 'Payment Processing';
+    }
+
+    if (hasAny(['health', 'healthcare', 'medical', 'doctor', 'wellness'])) {
+      return 'Health Assistant';
+    }
+
+    if (hasAny(['spreadsheet'])) {
+      return 'Spreadsheet Assistant';
+    }
+
+    if (hasAny(['analytics', 'dashboard', 'metrics'])) {
+      return 'Analytics Tool';
     }
 
     return undefined;

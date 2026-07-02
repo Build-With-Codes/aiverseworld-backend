@@ -82,6 +82,7 @@ function truncate(value: string, length = 260) {
 
 export type ToolMetadataFilters = {
   category?: string;
+  subcategory?: string;
   freeOnly?: boolean;
   apiOnly?: boolean;
   openSourceOnly?: boolean;
@@ -478,6 +479,11 @@ export class ToolRagIndexService {
       conditions.push(`LOWER("category") = LOWER($${params.length})`);
     }
 
+    if (filters.subcategory) {
+      params.push(filters.subcategory);
+      conditions.push(`LOWER("subcategory") = LOWER($${params.length})`);
+    }
+
     if (filters.freeOnly) {
       conditions.push(`"freePlan" = 'Yes'`);
     }
@@ -620,6 +626,10 @@ export class ToolRagIndexService {
 
     if (filters.category) {
       filter.category = { $eq: filters.category };
+    }
+
+    if (filters.subcategory) {
+      filter.subcategory = { $eq: filters.subcategory };
     }
 
     if (filters.freeOnly) {
