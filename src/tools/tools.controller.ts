@@ -8,8 +8,10 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UnauthorizedException,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { PublicApiCacheService } from '../cache/public-api-cache.service';
 import { ToolRagIndexService } from './tool-rag-index.service';
 import { ToolRagRecommendationService } from './tool-rag-recommendation.service';
@@ -92,12 +94,26 @@ export class ToolsController {
   }
 
   @Get('recommend')
-  recommend(@Query('q') query?: string, @Query('limit') limit?: string) {
+  recommend(
+    @Res({ passthrough: true }) response: Response,
+    @Query('q') query?: string,
+    @Query('limit') limit?: string,
+  ) {
+    response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    response.setHeader('Pragma', 'no-cache');
+    response.setHeader('Expires', '0');
     return this.toolsService.recommend(query ?? '', limit ? Number(limit) : 8);
   }
 
   @Get('recommend/rag')
-  recommendWithRag(@Query('q') query?: string, @Query('limit') limit?: string) {
+  recommendWithRag(
+    @Res({ passthrough: true }) response: Response,
+    @Query('q') query?: string,
+    @Query('limit') limit?: string,
+  ) {
+    response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    response.setHeader('Pragma', 'no-cache');
+    response.setHeader('Expires', '0');
     return this.ragRecommendationService.recommend(query ?? '', limit ? Number(limit) : 6);
   }
 

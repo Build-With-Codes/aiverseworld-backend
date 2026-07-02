@@ -54,6 +54,10 @@ export class PublicApiCacheService {
       return { cacheable: false, reason: 'operational endpoint' };
     }
 
+    if (path === '/api/tools/recommend' || path === '/api/tools/recommend/rag') {
+      return { cacheable: false, reason: 'AI recommendation endpoint is query-specific' };
+    }
+
     if (path.startsWith('/api/tools') || path.startsWith('/api/problems') || path.startsWith('/api/news')) {
       return { cacheable: true };
     }
