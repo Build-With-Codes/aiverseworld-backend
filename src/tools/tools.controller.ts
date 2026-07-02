@@ -1,7 +1,44 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Put,
+  Query,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ToolRagIndexService } from './tool-rag-index.service';
 import { ToolRagRecommendationService } from './tool-rag-recommendation.service';
 import { ToolsService } from './tools.service';
+import type { AdminToolInput, AdminToolUpdateInput } from './tools.types';
+
+function assertAdmin(headers: Record<string, string | string[] | undefined>) {
+  const configuredKey = process.env.ADMIN_API_KEY?.trim();
+
+  if (!configuredKey) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new UnauthorizedException('ADMIN_API_KEY is not configured.');
+    }
+
+    return;
+  }
+
+  const rawAdminKey = headers['x-admin-api-key'];
+  const adminKey = Array.isArray(rawAdminKey) ? rawAdminKey[0] : rawAdminKey;
+  const rawAuthorization = headers.authorization;
+  const authorization = Array.isArray(rawAuthorization)
+    ? rawAuthorization[0]
+    : rawAuthorization;
+  const bearerToken = authorization?.startsWith('Bearer ')
+    ? authorization.slice('Bearer '.length).trim()
+    : '';
+
+  if (adminKey !== configuredKey && bearerToken !== configuredKey) {
+    throw new UnauthorizedException('Invalid admin API key.');
+  }
+}
 
 @Controller('api/tools')
 export class ToolsController {
@@ -123,5 +160,53 @@ export class ToolsController {
     return {
       data: await this.toolsService.getBySlug(slug),
     };
+  }
+}
+
+@Controller('api/admin/tools')
+export class AdminToolsController {
+  constructor(
+    private readonly toolsService: ToolsService,
+    private readonly ragIndexService: ToolRagIndexService,
+  ) {}
+
+  @Post()
+  async upsert(
+    @Body() body: AdminToolInput,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+  ) {
+    assertAdmin(headers);
+    const tool = await this.toolsService.upsertAdminTool(body);
+    const vectorIndex = await this.ragIndexService.indexTool(tool);
+
+    return {
+      data: this.toolsService.normalizeToolForResponse(tool),
+      vectorIndex,
+    };
+  }
+
+  @Put(':id')
+  async update(
+    @Param('id') id: string,
+    @Body() body: AdminToolUpdateInput,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+  ) {
+    assertAdmin(headers);
+    const tool = await this.toolsService.updateAdminTool(id, body);
+    const vectorIndex = await this.ragIndexService.indexTool(tool);
+
+    return {
+      data: this.toolsService.normalizeToolForResponse(tool),
+      vectorIndex,
+    };
+  }
+
+  @Post(':id/reindex')
+  async reindex(
+    @Param('id') id: string,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+  ) {
+    assertAdmin(headers);
+    return this.ragIndexService.indexToolById(id);
   }
 }

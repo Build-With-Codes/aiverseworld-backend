@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { Prisma, type AiTool } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import type { ListToolsInput, ToolSort } from './tools.types';
+import type { AdminToolInput, AdminToolUpdateInput, ListToolsInput, ToolSort } from './tools.types';
 
 const categoryDescriptions: Record<string, string> = {
   'ai-assistant': 'General-purpose assistants for writing, coding, reasoning, and productivity.',
@@ -214,8 +214,26 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, '');
 }
 
+function cleanString(value: unknown) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function asStringArray(value: Prisma.JsonValue | null | undefined): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function inputStringArray(value: unknown, fallback: string[] = []) {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+
+  return value
+    .map((item) => cleanString(item))
+    .filter(Boolean);
+}
+
+function jsonArrayOrNull(value: string[] | undefined | null) {
+  return value && value.length > 0 ? value : Prisma.JsonNull;
 }
 
 function clampNumber(value: number, min: number, max: number) {
@@ -321,6 +339,53 @@ function tokenize(value: string) {
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter((token) => token.length > 1);
+}
+
+function buildToolSearchText(input: {
+  name: string;
+  company: string;
+  category: string;
+  subcategory: string;
+  shortDescription: string;
+  summary?: string | null;
+  pricingModel: string;
+  freePlan: string;
+  features: string[];
+  bestFor: string[];
+  targetAudience: string[];
+  tags: string[];
+  aiType: string[];
+  modalities: string[];
+  modelProvider: string[];
+  modelNames?: string[] | null;
+  deploymentType: string[];
+  platforms: string[];
+  integrations?: string[] | null;
+}) {
+  return [
+    input.name,
+    input.company,
+    input.category,
+    input.subcategory,
+    input.shortDescription,
+    input.summary,
+    input.pricingModel,
+    input.freePlan,
+    input.features.join(' '),
+    input.bestFor.join(' '),
+    input.targetAudience.join(' '),
+    input.tags.join(' '),
+    input.aiType.join(' '),
+    input.modalities.join(' '),
+    input.modelProvider.join(' '),
+    input.modelNames?.join(' '),
+    input.deploymentType.join(' '),
+    input.platforms.join(' '),
+    input.integrations?.join(' '),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
 }
 
 @Injectable()
@@ -440,6 +505,56 @@ export class ToolsService {
     }
 
     return normalizeTool(tool);
+  }
+
+  async upsertAdminTool(input: AdminToolInput) {
+    const prisma = this.getPrisma();
+    const data = this.buildAdminToolCreateData(input);
+    const source = await this.getOrCreateAdminSource(
+      input.sourceName,
+      input.sourceType,
+      input.sourceUrl,
+    );
+    const { slug: _slug, ...updateData } = data;
+
+    const tool = await prisma.aiTool.upsert({
+      where: { slug: data.slug },
+      update: {
+        ...updateData,
+        sourceId: source.id,
+      },
+      create: {
+        ...data,
+        sourceId: source.id,
+      },
+    });
+
+    return tool;
+  }
+
+  async updateAdminTool(id: string, input: AdminToolUpdateInput) {
+    const prisma = this.getPrisma();
+    const existing = await prisma.aiTool.findUnique({ where: { id } });
+
+    if (!existing) {
+      throw new NotFoundException('AI tool not found.');
+    }
+
+    const data = this.buildAdminToolUpdateData(existing, input);
+    const source =
+      input.sourceName || input.sourceType
+        ? await this.getOrCreateAdminSource(input.sourceName, input.sourceType, input.sourceUrl)
+        : null;
+
+    const tool = await prisma.aiTool.update({
+      where: { id },
+      data: {
+        ...data,
+        ...(source ? { sourceId: source.id } : {}),
+      },
+    });
+
+    return tool;
   }
 
   async getCategories() {
@@ -633,6 +748,153 @@ export class ToolsService {
     return value && isToolSort(value) ? value : 'rank';
   }
 
+  normalizeToolForResponse(tool: Parameters<typeof normalizeTool>[0]) {
+    return normalizeTool(tool);
+  }
+
+  private async getOrCreateAdminSource(name?: string, type?: string, baseUrl?: string | null) {
+    const prisma = this.getPrisma();
+    const sourceName = cleanString(name) || 'admin-api';
+
+    return prisma.aiToolSource.upsert({
+      where: { name: sourceName },
+      update: {
+        type: cleanString(type) || 'admin-api',
+        baseUrl: baseUrl ?? null,
+        isActive: true,
+        lastSyncedAt: new Date(),
+      },
+      create: {
+        name: sourceName,
+        type: cleanString(type) || 'admin-api',
+        baseUrl: baseUrl ?? null,
+        isActive: true,
+        lastSyncedAt: new Date(),
+      },
+    });
+  }
+
+  private buildAdminToolCreateData(input: AdminToolInput): Prisma.AiToolUncheckedCreateInput {
+    const name = cleanString(input.name);
+    const category = cleanString(input.category);
+    const shortDescription = cleanString(input.shortDescription);
+
+    if (!name || !category || !shortDescription) {
+      throw new BadRequestException('name, category, and shortDescription are required.');
+    }
+
+    const slug = cleanString(input.slug) || slugify(name);
+    const company = cleanString(input.company) || name;
+    const website = cleanString(input.website) || cleanString(input.sourceUrl) || '';
+    const domain = cleanString(input.domain) || this.extractDomain(website);
+    const subcategory = cleanString(input.subcategory) || category;
+    const pricingModel = cleanString(input.pricingModel) || 'Unknown';
+    const freePlan = cleanString(input.freePlan) || 'Unknown';
+    const features = inputStringArray(input.features);
+    const bestFor = inputStringArray(input.bestFor);
+    const targetAudience = inputStringArray(input.targetAudience);
+    const tags = inputStringArray(input.tags);
+    const aiType = inputStringArray(input.aiType);
+    const modalities = inputStringArray(input.modalities);
+    const modelProvider = inputStringArray(input.modelProvider);
+    const modelNames = inputStringArray(input.modelNames);
+    const deploymentType = inputStringArray(input.deploymentType);
+    const platforms = inputStringArray(input.platforms);
+    const integrations = inputStringArray(input.integrations);
+
+    const searchText = buildToolSearchText({
+      name,
+      company,
+      category,
+      subcategory,
+      shortDescription,
+      summary: input.summary ?? null,
+      pricingModel,
+      freePlan,
+      features,
+      bestFor,
+      targetAudience,
+      tags,
+      aiType,
+      modalities,
+      modelProvider,
+      modelNames,
+      deploymentType,
+      platforms,
+      integrations,
+    });
+
+    return {
+      rank: input.rank ?? null,
+      name,
+      slug,
+      category,
+      subcategory,
+      company,
+      website,
+      domain,
+      favicon: cleanString(input.favicon) || (domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : ''),
+      logoUrl: input.logoUrl ?? null,
+      freePlan,
+      freeTrial: input.freeTrial ?? false,
+      pricingModel,
+      startingPriceUsd: input.startingPriceUsd ?? null,
+      pricingNotes: input.pricingNotes ?? null,
+      shortDescription,
+      summary: input.summary ?? null,
+      features,
+      bestFor,
+      targetAudience,
+      tags,
+      aiType,
+      modalities,
+      modelProvider,
+      modelNames: jsonArrayOrNull(modelNames),
+      apiAvailable: input.apiAvailable ?? false,
+      openSource: input.openSource ?? false,
+      deploymentType,
+      platforms,
+      integrations: jsonArrayOrNull(integrations),
+      teamCollaboration: input.teamCollaboration ?? null,
+      security: jsonArrayOrNull(inputStringArray(input.security)),
+      privacyNotes: input.privacyNotes ?? null,
+      popularityScore: input.popularityScore ?? null,
+      rating: input.rating ?? null,
+      reviewCount: input.reviewCount ?? null,
+      status: cleanString(input.status) || 'Active',
+      launchYear: input.launchYear ?? null,
+      lastVerified: input.lastVerified ? new Date(`${input.lastVerified}T00:00:00.000Z`) : null,
+      sourceUrl: cleanString(input.sourceUrl) || website,
+      sourceType: cleanString(input.sourceType) || 'admin-api',
+      searchText,
+    };
+  }
+
+  private buildAdminToolUpdateData(
+    existing: AiTool,
+    input: AdminToolUpdateInput,
+  ): Prisma.AiToolUncheckedUpdateInput {
+    const current = normalizeTool(existing);
+    const merged: AdminToolInput = {
+      ...current,
+      ...input,
+      name: input.name ?? current.name,
+      category: input.category ?? current.category,
+      shortDescription: input.shortDescription ?? current.shortDescription,
+      features: input.features ?? current.features,
+      bestFor: input.bestFor ?? current.bestFor,
+      targetAudience: input.targetAudience ?? current.targetAudience,
+      tags: input.tags ?? current.tags,
+      aiType: input.aiType ?? current.aiType,
+      modalities: input.modalities ?? current.modalities,
+      modelProvider: input.modelProvider ?? current.modelProvider,
+      deploymentType: input.deploymentType ?? current.deploymentType,
+      platforms: input.platforms ?? current.platforms,
+    };
+
+    return this.buildAdminToolCreateData(merged);
+  }
+
   private buildWhere(input: Partial<ListToolsInput>): Prisma.AiToolWhereInput {
     const where: Prisma.AiToolWhereInput = {};
 
@@ -751,5 +1013,17 @@ export class ToolsService {
     return matched
       ? `Matched your request against ${matched}.`
       : `Strong ${tool.category} fit based on catalog ranking and usage signals.`;
+  }
+
+  private extractDomain(value: string) {
+    if (!value) {
+      return '';
+    }
+
+    try {
+      return new URL(value).hostname.replace(/^www\./, '');
+    } catch {
+      return value.replace(/^https?:\/\//, '').split('/')[0].replace(/^www\./, '');
+    }
   }
 }

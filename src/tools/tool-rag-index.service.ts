@@ -166,6 +166,22 @@ export class ToolRagIndexService {
     const vectors = await this.embeddings.embedDocuments(
       documents.map((document) => document.pageContent),
     );
+    const prisma = this.getPrisma();
+    const existingEmbeddings = await prisma.aiToolEmbedding.findMany({
+      where: { toolId: tool.id },
+      select: { chunkIndex: true },
+    });
+    const existingVectorIds = existingEmbeddings.map((embedding) =>
+      this.vectorId(tool.id, embedding.chunkIndex),
+    );
+
+    if (existingVectorIds.length > 0) {
+      await this.deleteExistingVectors(index, existingVectorIds, tool.id);
+    }
+
+    await prisma.aiToolEmbedding.deleteMany({
+      where: { toolId: tool.id },
+    });
 
     await index.upsert({
       namespace: this.pineconeNamespace,
@@ -188,7 +204,37 @@ export class ToolRagIndexService {
       })),
     });
 
+    await prisma.aiToolEmbedding.createMany({
+      data: documents.map((document, index) => ({
+        toolId: tool.id,
+        chunkIndex: index,
+        content: document.pageContent,
+        contentHash: contentHash(document.pageContent),
+        embedding: vectors[index] as Prisma.InputJsonValue,
+        embeddingModel: this.getEmbeddingModelName(),
+        metadata: {
+          slug: tool.slug,
+          name: tool.name,
+          category: tool.category,
+          source: 'AiTool',
+        },
+        sourceUpdatedAt: tool.updatedAt,
+      })),
+    });
+
     return { toolId: tool.id, chunks: documents.length };
+  }
+
+  async indexToolById(toolId: string) {
+    const tool = await this.getPrisma().aiTool.findUnique({
+      where: { id: toolId },
+    });
+
+    if (!tool) {
+      throw new ServiceUnavailableException(`Cannot index missing AI tool ${toolId}.`);
+    }
+
+    return this.indexTool(tool);
   }
 
   async searchSimilar(query: string, limit = 12) {
@@ -243,6 +289,35 @@ export class ToolRagIndexService {
 
   private vectorId(toolId: string, chunkIndex: number) {
     return `${toolId}:${chunkIndex}`;
+  }
+
+  private async deleteExistingVectors(
+    index: Index<RecordMetadata>,
+    vectorIds: string[],
+    toolId: string,
+  ) {
+    try {
+      await index.deleteMany({
+        namespace: this.pineconeNamespace,
+        ids: vectorIds,
+      });
+    } catch (error) {
+      if (this.isPineconeNotFound(error)) {
+        this.logger.warn(
+          `Pinecone had no existing vectors to delete for AI tool ${toolId}; continuing with fresh upsert.`,
+        );
+        return;
+      }
+
+      throw error;
+    }
+  }
+
+  private isPineconeNotFound(error: unknown) {
+    return (
+      error instanceof Error &&
+      (error.name === 'PineconeNotFoundError' || error.message.includes('status 404'))
+    );
   }
 
   private async buildDocuments(tool: RagToolRecord) {
