@@ -7,12 +7,16 @@ import {
   Query,
   UnauthorizedException,
 } from '@nestjs/common';
+import { PublicApiCacheService } from '../cache/public-api-cache.service';
 import { NewsService } from './news.service';
 import type { NewsSourceArticle } from './news.types';
 
 @Controller('api/news')
 export class NewsController {
-  constructor(private readonly newsService: NewsService) {}
+  constructor(
+    private readonly newsService: NewsService,
+    private readonly cacheService: PublicApiCacheService,
+  ) {}
 
   @Get()
   async getArticles(
@@ -57,12 +61,14 @@ export class NewsController {
     @Body() body?: { limit?: number; category?: string },
   ) {
     this.assertSecret(ingestSecret);
+    const articles = await this.newsService.refreshArticles({
+      ...body,
+      trigger: 'manual',
+    });
+    await this.cacheService.invalidate('news refresh');
 
     return {
-      data: await this.newsService.refreshArticles({
-        ...body,
-        trigger: 'manual',
-      }),
+      data: articles,
     };
   }
 
@@ -72,12 +78,14 @@ export class NewsController {
     @Body() body?: { limit?: number; category?: string },
   ) {
     this.assertSecret(ingestSecret);
+    const articles = await this.newsService.refreshArticles({
+      ...body,
+      trigger: 'cron',
+    });
+    await this.cacheService.invalidate('news cron refresh');
 
     return {
-      data: await this.newsService.refreshArticles({
-        ...body,
-        trigger: 'cron',
-      }),
+      data: articles,
     };
   }
 
@@ -87,9 +95,11 @@ export class NewsController {
     @Body() article: NewsSourceArticle,
   ) {
     this.assertSecret(ingestSecret);
+    const ingested = await this.newsService.ingestArticle(article);
+    await this.cacheService.invalidate('news ingest');
 
     return {
-      data: await this.newsService.ingestArticle(article),
+      data: ingested,
     };
   }
 

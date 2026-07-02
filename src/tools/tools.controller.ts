@@ -10,6 +10,7 @@ import {
   Query,
   UnauthorizedException,
 } from '@nestjs/common';
+import { PublicApiCacheService } from '../cache/public-api-cache.service';
 import { ToolRagIndexService } from './tool-rag-index.service';
 import { ToolRagRecommendationService } from './tool-rag-recommendation.service';
 import { ToolsService } from './tools.service';
@@ -183,6 +184,7 @@ export class AdminToolsController {
   constructor(
     private readonly toolsService: ToolsService,
     private readonly ragIndexService: ToolRagIndexService,
+    private readonly cacheService: PublicApiCacheService,
   ) {}
 
   @Post()
@@ -193,6 +195,7 @@ export class AdminToolsController {
     assertAdmin(headers);
     const tool = await this.toolsService.upsertAdminTool(body);
     const vectorIndex = await this.ragIndexService.indexTool(tool);
+    await this.cacheService.invalidate('admin tool upsert');
 
     return {
       data: this.toolsService.normalizeToolForResponse(tool),
@@ -234,6 +237,10 @@ export class AdminToolsController {
       }
     }
 
+    if (succeeded > 0) {
+      await this.cacheService.invalidate('admin bulk tool upsert');
+    }
+
     return {
       total: inputs.length,
       succeeded,
@@ -251,6 +258,7 @@ export class AdminToolsController {
     assertAdmin(headers);
     const tool = await this.toolsService.updateAdminTool(id, body);
     const vectorIndex = await this.ragIndexService.indexTool(tool);
+    await this.cacheService.invalidate('admin tool update');
 
     return {
       data: this.toolsService.normalizeToolForResponse(tool),
@@ -264,6 +272,8 @@ export class AdminToolsController {
     @Headers() headers: Record<string, string | string[] | undefined>,
   ) {
     assertAdmin(headers);
-    return this.ragIndexService.indexToolById(id);
+    const result = await this.ragIndexService.indexToolById(id);
+    await this.cacheService.invalidate('admin tool reindex');
+    return result;
   }
 }

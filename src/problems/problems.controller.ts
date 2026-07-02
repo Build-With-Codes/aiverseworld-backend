@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { PublicApiCacheService } from '../cache/public-api-cache.service';
 import { ProblemsService } from './problems.service';
 import type { CreateProblemInput, ProblemVote } from './problems.types';
 
@@ -9,7 +10,10 @@ function toNumber(value: string | undefined, fallback: number) {
 
 @Controller('api/problems')
 export class ProblemsController {
-  constructor(private readonly problemsService: ProblemsService) {}
+  constructor(
+    private readonly problemsService: ProblemsService,
+    private readonly cacheService: PublicApiCacheService,
+  ) {}
 
   @Get()
   async list(
@@ -37,15 +41,21 @@ export class ProblemsController {
 
   @Post()
   async create(@Body() body: CreateProblemInput) {
+    const problem = await this.problemsService.create(body);
+    await this.cacheService.invalidate('problem create');
+
     return {
-      data: await this.problemsService.create(body),
+      data: problem,
     };
   }
 
   @Post(':id/vote')
   async vote(@Param('id') id: string, @Body() body: { vote?: ProblemVote }) {
+    const problem = await this.problemsService.vote(id, body.vote ?? 'aiSolvable');
+    await this.cacheService.invalidate('problem vote');
+
     return {
-      data: await this.problemsService.vote(id, body.vote ?? 'aiSolvable'),
+      data: problem,
     };
   }
 }
