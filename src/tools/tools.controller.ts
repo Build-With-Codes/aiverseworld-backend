@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -38,6 +39,20 @@ function assertAdmin(headers: Record<string, string | string[] | undefined>) {
   if (adminKey !== configuredKey && bearerToken !== configuredKey) {
     throw new UnauthorizedException('Invalid admin API key.');
   }
+}
+
+function getBulkTools(body: AdminToolInput[] | { tools?: AdminToolInput[] }) {
+  const tools = Array.isArray(body) ? body : body.tools;
+
+  if (!Array.isArray(tools) || tools.length === 0) {
+    throw new BadRequestException('Send a non-empty tools array.');
+  }
+
+  if (tools.length > 100) {
+    throw new BadRequestException('Bulk tool upsert supports up to 100 tools per request.');
+  }
+
+  return tools;
 }
 
 @Controller('api/tools')
@@ -182,6 +197,48 @@ export class AdminToolsController {
     return {
       data: this.toolsService.normalizeToolForResponse(tool),
       vectorIndex,
+    };
+  }
+
+  @Post('bulk')
+  async upsertBulk(
+    @Body() body: AdminToolInput[] | { tools?: AdminToolInput[] },
+    @Headers() headers: Record<string, string | string[] | undefined>,
+  ) {
+    assertAdmin(headers);
+    const inputs = getBulkTools(body);
+    const results: Array<Record<string, unknown>> = [];
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const [index, input] of inputs.entries()) {
+      try {
+        const tool = await this.toolsService.upsertAdminTool(input);
+        const vectorIndex = await this.ragIndexService.indexTool(tool);
+        succeeded += 1;
+        results.push({
+          index,
+          ok: true,
+          data: this.toolsService.normalizeToolForResponse(tool),
+          vectorIndex,
+        });
+      } catch (error) {
+        failed += 1;
+        results.push({
+          index,
+          ok: false,
+          slug: input?.slug,
+          name: input?.name,
+          error: error instanceof Error ? error.message : 'Unknown bulk upsert error.',
+        });
+      }
+    }
+
+    return {
+      total: inputs.length,
+      succeeded,
+      failed,
+      results,
     };
   }
 
