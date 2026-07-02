@@ -5,6 +5,7 @@ import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { Pinecone, type Index, type RecordMetadata } from '@pinecone-database/pinecone';
 import { createHash } from 'node:crypto';
 import { Pool } from 'pg';
+import { CloudflareAiService } from '../src/tools/cloudflare-ai.service';
 import { LocalHashEmbeddings } from '../src/tools/local-hash-embeddings';
 
 const schemaName = 'aiverse_world';
@@ -50,22 +51,45 @@ function getPineconeIndex(): { index: Index<RecordMetadata>; namespace: string }
 function toolContent(tool: Awaited<ReturnType<PrismaClient['aiTool']['findMany']>>[number]) {
   return [
     `Tool: ${tool.name}`,
-    `Company: ${tool.company}`,
     `Category: ${tool.category} / ${tool.subcategory}`,
-    `Description: ${tool.summary ?? tool.shortDescription}`,
+    `Company: ${tool.company}`,
+    `Description: ${tool.shortDescription}`,
+    `Summary: ${tool.summary ?? tool.shortDescription}`,
     `Features: ${asStringArray(tool.features).join(', ')}`,
     `Best for: ${asStringArray(tool.bestFor).join(', ')}`,
-    `Audience: ${asStringArray(tool.targetAudience).join(', ')}`,
     `Tags: ${asStringArray(tool.tags).join(', ')}`,
+    `Audience: ${asStringArray(tool.targetAudience).join(', ')}`,
     `AI type: ${asStringArray(tool.aiType).join(', ')}`,
     `Modalities: ${asStringArray(tool.modalities).join(', ')}`,
     `Providers: ${asStringArray(tool.modelProvider).join(', ')}`,
     `Platforms: ${asStringArray(tool.platforms).join(', ')}`,
-    `Pricing: ${tool.pricingModel}; free plan: ${tool.freePlan}`,
+    `Pricing: ${tool.pricingModel}; free plan: ${tool.freePlan}; free trial: ${
+      tool.freeTrial ? 'yes' : 'no'
+    }`,
     `API available: ${tool.apiAvailable ? 'yes' : 'no'}`,
     `Open source: ${tool.openSource ? 'yes' : 'no'}`,
+    `Status: ${tool.status}`,
+    `Rating: ${tool.rating ?? 'unknown'}`,
     `Catalog search text: ${tool.searchText}`,
   ].join('\n');
+}
+
+async function embedDocuments(documents: string[]) {
+  const cloudflareAi = new CloudflareAiService();
+  const localEmbeddings = new LocalHashEmbeddings();
+  const cloudflareRows = await cloudflareAi.embedTexts(documents);
+
+  if (cloudflareRows) {
+    return {
+      vectors: cloudflareRows,
+      modelName: cloudflareAi.getEmbeddingModelName() ?? localEmbeddings.modelName,
+    };
+  }
+
+  return {
+    vectors: await localEmbeddings.embedDocuments(documents),
+    modelName: localEmbeddings.modelName,
+  };
 }
 
 async function main() {
@@ -78,7 +102,6 @@ async function main() {
   const pool = new Pool({ connectionString: withSchema(databaseUrl) });
   const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
   const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 900, chunkOverlap: 120 });
-  const embeddings = new LocalHashEmbeddings();
   const { index: pineconeIndex, namespace } = getPineconeIndex();
 
   try {
@@ -86,7 +109,7 @@ async function main() {
 
     for (const tool of tools) {
       const chunks = await splitter.splitText(toolContent(tool));
-      const vectors = await embeddings.embedDocuments(chunks);
+      const { vectors, modelName } = await embedDocuments(chunks);
 
       await pineconeIndex.upsert({
         namespace,
@@ -98,12 +121,23 @@ async function main() {
             chunkIndex: index,
             content: chunk,
             contentHash: contentHash(chunk),
-            embeddingModel: embeddings.modelName,
+            embeddingModel: modelName,
             sourceUpdatedAt: tool.updatedAt.toISOString(),
             sourceUpdatedAtMs: tool.updatedAt.getTime(),
             slug: tool.slug,
             name: tool.name,
+            subcategory: tool.subcategory,
+            company: tool.company,
             category: tool.category,
+            pricingModel: tool.pricingModel,
+            freePlan: tool.freePlan,
+            freeTrial: tool.freeTrial,
+            apiAvailable: tool.apiAvailable,
+            openSource: tool.openSource,
+            platforms: asStringArray(tool.platforms),
+            status: tool.status,
+            rating: tool.rating ?? 0,
+            popularityScore: tool.popularityScore ?? 0,
             source: 'AiTool',
           },
         })),

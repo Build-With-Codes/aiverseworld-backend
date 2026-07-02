@@ -51,9 +51,47 @@ PINECONE_NAMESPACE="ai-tools"
 AI_TOOL_EMBEDDING_DIMENSION="1024"
 ```
 
-The current local embedding provider uses `local-hash-embedding-v1`, so create or target a Pinecone index with dimension `1024` and metric `cosine`. Set `PINECONE_INDEX_HOST` only when you want to target a specific Pinecone host directly.
+Set `PINECONE_INDEX_HOST` only when you want to target a specific Pinecone host directly.
 
-For OpenRouter AI Finder reranking, set `OPENROUTER_MODEL=openrouter/free` to let the backend fetch available free OpenRouter models and send them with fallback routing.
+Cloudflare Workers AI is used for BGE-M3 embeddings and BGE reranking when configured:
+
+```bash
+CLOUDFLARE_ACCOUNT_ID="..."
+CLOUDFLARE_API_TOKEN="..."
+CLOUDFLARE_EMBEDDING_MODEL="@cf/baai/bge-m3"
+CLOUDFLARE_RERANKER_MODEL="@cf/baai/bge-reranker-base"
+```
+
+Aliases accepted by the backend:
+
+- Account ID: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ACCOUNTID`, `CF_ACCOUNT_ID`, `CF_ACCOUNTID`
+- API token/key: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_AI_API_TOKEN`, `CLOUDFLARE_API_KEY`, `CF_API_TOKEN`, `CF_API_KEY`
+
+If Cloudflare credentials are not present or a Cloudflare request fails, AI Finder falls back to `local-hash-embedding-v1` and local ranking. Create or target a Pinecone index with dimension `1024` and metric `cosine`.
+
+For OpenRouter AI Finder explanations, set `OPENROUTER_MODEL=openrouter/free` to let the backend fetch available free OpenRouter models and send them with fallback routing.
+
+AI Finder search requests do not refresh Pinecone by default. Admin tool creates/updates index the affected tool, and `npm run tools:reindex` handles full refreshes. For debugging only, set `AI_FINDER_ENSURE_INDEX_ON_QUERY=true` to restore blocking index freshness checks before every recommendation request.
+
+Langfuse tracing is enabled when these variables are present:
+
+```bash
+LANGFUSE_PUBLIC_KEY="..."
+LANGFUSE_SECRET_KEY="..."
+LANGFUSE_BASE_URL="https://cloud.langfuse.com"
+```
+
+AI Finder traces include request/session IDs, LangGraph node spans, query rewriting, metadata filters, Pinecone semantic retrieval, PostgreSQL keyword retrieval, retrieved chunks, RRF merge, reranking/business ranking, OpenRouter prompts/responses, token usage when returned by the provider, latency, final response, and grounding/faithfulness scores.
+
+Public catalog APIs are cached in Upstash Redis for two days by default. Configure:
+
+```bash
+UPSTASH_REDIS_REST_URL="https://..."
+UPSTASH_REDIS_REST_TOKEN="..."
+API_CACHE_TTL_SECONDS="172800"
+```
+
+The cache applies to public `GET` requests under `/api/tools`, `/api/problems`, and `/api/news`, except health/reindex endpoints. Admin tool writes, problem writes/votes, and news refresh/ingest requests bump the cache version so new reads do not use stale entries.
 
 Catalog import and vector reindex commands:
 
@@ -61,6 +99,8 @@ Catalog import and vector reindex commands:
 npm run tools:import
 npm run tools:reindex
 ```
+
+Run `npm run tools:reindex` after changing embedding metadata/text structure so existing Pinecone records receive the latest fields such as `company`, `subcategory`, `freeTrial`, `platforms`, `status`, and `rating`.
 
 ## Compile and run the project
 
@@ -85,7 +125,22 @@ Build Command: npm install && npm run build
 Start Command: npm start
 ```
 
-`npm start` runs `prisma migrate deploy` and then starts the compiled `dist/main.js` file. Do not use `nest start` as the Render start command because it loads the Nest CLI/compiler in production and can exceed the small instance heap limit.
+`npm start` attempts Prisma migrations and then starts the compiled `dist/main.js` file. Migrations intentionally use only `DIRECT_URL`/`DIRECT_DATABASE_URL`; runtime `DATABASE_URL` is for the app pool. On Supabase, set `DIRECT_URL` to a reachable direct or session-pooler connection, not the transaction pooler. If that migration database is unreachable during Render startup, the deploy fails so the app does not run with missing tables. For a temporary emergency boot, set `ALLOW_UNREACHABLE_MIGRATIONS=true`, but required tables must still be created by fixing `DIRECT_URL` or running `npm run prisma:migrate` from a network that can reach Postgres. Do not use `nest start` as the Render start command because it loads the Nest CLI/compiler in production and can exceed the small instance heap limit.
+
+Startup only creates or migrates schema. It does not import default/sample AI tools or problems. Add data manually through the admin API, or run explicit import commands such as `npm run tools:import` and `npm run problems:import` when you actually want to seed data.
+
+## Admin AI tool API
+
+Set `ADMIN_API_KEY` in production. Admin writes accept either `x-admin-api-key: <key>` or `Authorization: Bearer <key>`.
+
+```bash
+POST /api/admin/tools
+POST /api/admin/tools/bulk
+PUT /api/admin/tools/:id
+POST /api/admin/tools/:id/reindex
+```
+
+`POST /api/admin/tools` upserts by `slug` and then refreshes that tool in Pinecone. Required JSON fields are `name`, `category`, and `shortDescription`; optional fields match the AI tool catalog fields such as `features`, `bestFor`, `targetAudience`, `pricingModel`, `website`, `tags`, `platforms`, and `modelProvider`.
 
 ## Run tests
 

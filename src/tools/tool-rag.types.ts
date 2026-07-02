@@ -19,8 +19,10 @@ export type RagToolRecord = {
   platforms: Prisma.JsonValue;
   pricingModel: string;
   freePlan: string;
+  freeTrial: boolean;
   apiAvailable: boolean;
   openSource: boolean;
+  status: string;
   popularityScore: number | null;
   rating: number | null;
   searchText: string;
