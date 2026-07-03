@@ -115,6 +115,10 @@ export class CloudflareAiService {
     return this.isConfigured() ? `cloudflare:${this.embeddingsModel}` : null;
   }
 
+  getRerankerModelName() {
+    return this.isConfigured() ? `cloudflare:${this.rerankerModel}` : null;
+  }
+
   async embedTexts(texts: string[]) {
     if (!this.isConfigured() || texts.length === 0) {
       this.logCloudflareFlow('embeddings_skipped', {

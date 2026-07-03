@@ -14,6 +14,29 @@ type QueryUnderstanding = {
   expandedQueries: string[];
 };
 
+type RecommendationTelemetry = {
+  query?: string;
+  rewrittenQuery?: string;
+  embeddingModel?: string;
+  reranker?: string | null;
+  llmModel?: string;
+  semanticHits?: number;
+  keywordHits?: number;
+  retrievedChunks?: number;
+  returnedChunks?: number;
+  cacheHit?: boolean;
+  latency?: number;
+  faithfulnessScore?: number;
+  hallucinationRate?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  retrievalScore?: number;
+  rerankScore?: number;
+  answerQuality?: number;
+  embeddingSimilarity?: number;
+};
+
 const GraphState = Annotation.Root({
   requestId: Annotation<string>,
   query: Annotation<string>,
@@ -22,7 +45,14 @@ const GraphState = Annotation.Root({
     reducer: (_, update) => update,
     default: () => ({ intent: 'general', filters: {}, expandedQueries: [] }),
   }),
-  retrieved: Annotation<Array<{ toolId: string; content: string; similarity: number }>>({
+  retrieved: Annotation<
+    Array<{
+      toolId: string;
+      content: string;
+      similarity: number;
+      source?: 'semantic' | 'keyword' | 'hybrid';
+    }>
+  >({
     reducer: (_, update) => update,
     default: () => [],
   }),
@@ -33,6 +63,10 @@ const GraphState = Annotation.Root({
   llmAnswer: Annotation<string>({
     reducer: (_, update) => update,
     default: () => '',
+  }),
+  telemetry: Annotation<RecommendationTelemetry>({
+    reducer: (current, update) => ({ ...current, ...update }),
+    default: () => ({}),
   }),
 });
 
@@ -66,6 +100,12 @@ type LlmDecision = {
     reason?: string;
     score?: number;
   }>;
+};
+
+type RecommendationDecision = {
+  recommendations: RagRecommendation[];
+  llmAnswer: string;
+  telemetry?: RecommendationTelemetry;
 };
 
 function asStringArray(value: Prisma.JsonValue | null | undefined): string[] {
@@ -143,6 +183,14 @@ function truncate(value: string, length = 260) {
   return value.length > length ? `${value.slice(0, length)}...` : value;
 }
 
+function clampScore(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Number(Math.max(0, Math.min(1, value)).toFixed(4));
+}
+
 @Injectable()
 export class ToolRagRecommendationService {
   private readonly logger = new Logger(ToolRagRecommendationService.name);
@@ -168,12 +216,15 @@ export class ToolRagRecommendationService {
     const startedAt = Date.now();
     const normalizedQuery = query.trim();
     const requestId = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const embeddingModel = this.ragIndex.getEmbeddingModelName();
+    const reranker = this.cloudflareAi.getRerankerModelName();
+    const llmModel = buildOpenRouterModelBody().model;
 
     this.logFlow(1, 'request_received', {
       requestId,
       query: normalizedQuery,
       limit,
-      embeddingModel: this.ragIndex.getEmbeddingModelName(),
+      embeddingModel,
       vectorStore: this.ragIndex.getVectorStoreName(),
     });
     this.langfuse.createTrace({
@@ -183,10 +234,29 @@ export class ToolRagRecommendationService {
       sessionId: requestId,
       tags: ['ai-finder', 'langgraph', 'rag'],
       metadata: {
+        query: normalizedQuery,
+        rewrittenQuery: normalizedQuery,
         promptVersion: this.promptVersion,
-        embeddingModel: this.ragIndex.getEmbeddingModelName(),
+        embeddingModel,
+        reranker,
+        llmModel,
         vectorStore: this.ragIndex.getVectorStoreName(),
         langfuseConfigured: this.langfuse.isConfigured(),
+        semanticHits: 0,
+        keywordHits: 0,
+        retrievedChunks: 0,
+        returnedChunks: 0,
+        cacheHit: false,
+        latency: 0,
+        faithfulnessScore: 0,
+        hallucinationRate: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        retrievalScore: 0,
+        rerankScore: 0,
+        answerQuality: 0,
+        embeddingSimilarity: 0,
       },
     });
 
@@ -236,6 +306,14 @@ export class ToolRagRecommendationService {
       retrieved: [],
       recommendations: [],
       llmAnswer: '',
+      telemetry: {
+        query: normalizedQuery,
+        rewrittenQuery: normalizedQuery,
+        embeddingModel,
+        reranker,
+        llmModel,
+        cacheHit: false,
+      },
     });
     const toolIds = state.recommendations
       .slice(0, limit)
@@ -249,15 +327,81 @@ export class ToolRagRecommendationService {
     });
 
     if (toolIds.length === 0) {
+      const totalLatencyMs = Date.now() - startedAt;
+      const finalTelemetry: RecommendationTelemetry = {
+        ...state.telemetry,
+        query: normalizedQuery,
+        rewrittenQuery: state.rewrittenQuery,
+        embeddingModel,
+        reranker,
+        llmModel: state.telemetry.llmModel ?? llmModel,
+        semanticHits: state.telemetry.semanticHits ?? 0,
+        keywordHits: state.telemetry.keywordHits ?? 0,
+        retrievedChunks: state.retrieved.length,
+        returnedChunks: 0,
+        cacheHit: false,
+        latency: totalLatencyMs,
+        faithfulnessScore: 0,
+        hallucinationRate: 1,
+        answerQuality: 0,
+        promptTokens: state.telemetry.promptTokens ?? 0,
+        completionTokens: state.telemetry.completionTokens ?? 0,
+        totalTokens: state.telemetry.totalTokens ?? 0,
+        retrievalScore: state.telemetry.retrievalScore ?? 0,
+        rerankScore: state.telemetry.rerankScore ?? 0,
+        embeddingSimilarity: state.telemetry.embeddingSimilarity ?? 0,
+      };
       this.logFlow(11, 'response_no_matches', {
         requestId,
         retrievedChunks: state.retrieved.length,
       });
       this.langfuse.createScore({
         traceId: requestId,
+        name: 'faithfulness_score',
+        value: 0,
+        comment: 'No recommendations returned.',
+        metadata: finalTelemetry,
+      });
+      this.langfuse.createScore({
+        traceId: requestId,
+        name: 'hallucination_rate',
+        value: 1,
+        comment: 'No grounded answer returned.',
+        metadata: finalTelemetry,
+      });
+      this.langfuse.createScore({
+        traceId: requestId,
+        name: 'answer_quality',
+        value: 0,
+        comment: 'No recommendations returned.',
+        metadata: finalTelemetry,
+      });
+      this.langfuse.createScore({
+        traceId: requestId,
+        name: 'latency_score',
+        value: clampScore(1 - totalLatencyMs / 12_000),
+        metadata: finalTelemetry,
+      });
+      this.langfuse.createScore({
+        traceId: requestId,
         name: 'grounded',
         value: 0,
         comment: 'No recommendations returned.',
+        metadata: finalTelemetry,
+      });
+      this.langfuse.createTrace({
+        traceId: requestId,
+        name: 'AI Finder recommendation',
+        output: {
+          answer:
+            'I could not find a strong catalog match yet. Try describing the use case with a few more details.',
+          tools: [],
+        },
+        metadata: {
+          ...finalTelemetry,
+          totalLatencyMs,
+          recommendationCount: 0,
+        },
       });
 
       return {
@@ -339,17 +483,50 @@ export class ToolRagRecommendationService {
     });
 
     const grounding = this.evaluateGrounding(state.llmAnswer, state.recommendations);
+    const totalLatencyMs = Date.now() - startedAt;
+    const faithfulnessScore = grounding.faithfulnessScore;
+    const hallucinationRate = clampScore(1 - faithfulnessScore);
+    const answerQuality = this.calculateAnswerQuality(
+      state.recommendations,
+      faithfulnessScore,
+    );
+    const latencyScore = clampScore(1 - totalLatencyMs / 12_000);
+    const finalTelemetry: RecommendationTelemetry = {
+      ...state.telemetry,
+      query: normalizedQuery,
+      rewrittenQuery: state.rewrittenQuery,
+      embeddingModel,
+      reranker,
+      llmModel: state.telemetry.llmModel ?? llmModel,
+      semanticHits: state.telemetry.semanticHits ?? 0,
+      keywordHits: state.telemetry.keywordHits ?? 0,
+      retrievedChunks: state.retrieved.length,
+      returnedChunks: responseTools.length,
+      cacheHit: false,
+      latency: totalLatencyMs,
+      faithfulnessScore,
+      hallucinationRate,
+      answerQuality,
+      promptTokens: state.telemetry.promptTokens ?? 0,
+      completionTokens: state.telemetry.completionTokens ?? 0,
+      totalTokens: state.telemetry.totalTokens ?? 0,
+      retrievalScore: state.telemetry.retrievalScore ?? 0,
+      rerankScore: state.telemetry.rerankScore ?? 0,
+      embeddingSimilarity: state.telemetry.embeddingSimilarity ?? 0,
+    };
 
     this.logFlow(11, 'grounding_evaluation', {
       requestId,
       ...grounding,
+      hallucinationRate,
+      answerQuality,
     });
     this.langfuse.createScore({
       traceId: requestId,
-      name: 'faithfulness',
-      value: grounding.faithfulnessScore,
+      name: 'faithfulness_score',
+      value: faithfulnessScore,
       comment: grounding.grounded ? 'Grounded by retrieved context.' : 'Low context overlap.',
-      metadata: grounding,
+      metadata: finalTelemetry,
     });
     this.langfuse.createScore({
       traceId: requestId,
@@ -357,10 +534,31 @@ export class ToolRagRecommendationService {
       value: grounding.grounded ? 1 : 0,
       metadata: grounding,
     });
+    this.langfuse.createScore({
+      traceId: requestId,
+      name: 'hallucination_rate',
+      value: hallucinationRate,
+      comment: 'Estimated as 1 - faithfulness_score.',
+      metadata: finalTelemetry,
+    });
+    this.langfuse.createScore({
+      traceId: requestId,
+      name: 'answer_quality',
+      value: answerQuality,
+      comment: 'Heuristic score from faithfulness and returned recommendation confidence.',
+      metadata: finalTelemetry,
+    });
+    this.langfuse.createScore({
+      traceId: requestId,
+      name: 'latency_score',
+      value: latencyScore,
+      comment: '1 is fastest; reaches 0 at 12 seconds.',
+      metadata: finalTelemetry,
+    });
 
     this.logFlow(11, 'response_ready', {
       requestId,
-      totalLatencyMs: Date.now() - startedAt,
+      totalLatencyMs,
       returnedTools: responseTools.map((tool) => ({
         id: tool.id,
         name: tool.name,
@@ -380,7 +578,8 @@ export class ToolRagRecommendationService {
         })),
       },
       metadata: {
-        totalLatencyMs: Date.now() - startedAt,
+        ...finalTelemetry,
+        totalLatencyMs,
         returnedToolCount: responseTools.length,
       },
     });
@@ -397,8 +596,8 @@ export class ToolRagRecommendationService {
         })),
       },
       metadata: {
-        totalLatencyMs: Date.now() - startedAt,
-        retrievedChunks: state.retrieved.length,
+        ...finalTelemetry,
+        totalLatencyMs,
         recommendationCount: responseTools.length,
       },
     });
@@ -470,6 +669,10 @@ export class ToolRagRecommendationService {
 
     return {
       rewrittenQuery,
+      telemetry: {
+        query: state.query,
+        rewrittenQuery,
+      },
       understanding: {
         intent,
         filters,
@@ -502,23 +705,66 @@ export class ToolRagRecommendationService {
       });
       retrieved = await this.ragIndex.searchHybrid(state.rewrittenQuery, {}, 18, state.requestId);
     }
-    const mapped = retrieved.map(({ row, similarity }) => ({
+    const mapped = retrieved.map(({ row, similarity, source }) => ({
       toolId: row.toolId,
       content: row.content,
       similarity,
+      source,
     }));
+    const semanticHits = mapped.filter(
+      (item) => item.source === 'semantic' || item.source === 'hybrid',
+    ).length;
+    const keywordHits = mapped.filter(
+      (item) => item.source === 'keyword' || item.source === 'hybrid',
+    ).length;
+    const topSimilarity = Math.max(...mapped.map((item) => item.similarity), 0);
+    const retrievalScore = this.averageScore(
+      mapped.slice(0, 5).map((item) =>
+        topSimilarity > 0 ? item.similarity / topSimilarity : 0,
+      ),
+    );
+    const embeddingSimilarity = clampScore(topSimilarity);
 
     this.logFlow(5, 'hybrid_retrieval_done', {
       requestId: state.requestId,
       rewrittenQuery: state.rewrittenQuery,
       count: mapped.length,
+      semanticHits,
+      keywordHits,
+      retrievalScore,
+      embeddingSimilarity,
       filters: state.understanding.filters,
       usedFilterFallback,
       topMatches: mapped.slice(0, 8).map((item) => ({
         toolId: item.toolId,
         score: Number(item.similarity.toFixed(4)),
+        source: item.source,
         content: truncate(item.content, 220),
       })),
+    });
+    this.langfuse.createScore({
+      traceId: state.requestId,
+      name: 'retrieval_score',
+      value: retrievalScore,
+      metadata: {
+        query: state.query,
+        rewrittenQuery: state.rewrittenQuery,
+        semanticHits,
+        keywordHits,
+        retrievedChunks: mapped.length,
+        embeddingModel: this.ragIndex.getEmbeddingModelName(),
+      },
+    });
+    this.langfuse.createScore({
+      traceId: state.requestId,
+      name: 'embedding_similarity',
+      value: embeddingSimilarity,
+      metadata: {
+        query: state.query,
+        rewrittenQuery: state.rewrittenQuery,
+        topSimilarity,
+        embeddingModel: this.ragIndex.getEmbeddingModelName(),
+      },
     });
     this.langfuse.createSpan({
       traceId: state.requestId,
@@ -541,10 +787,24 @@ export class ToolRagRecommendationService {
       metadata: {
         vectorStore: this.ragIndex.getVectorStoreName(),
         embeddingModel: this.ragIndex.getEmbeddingModelName(),
+        semanticHits,
+        keywordHits,
+        retrievalScore,
+        embeddingSimilarity,
       },
     });
 
-    return { retrieved: mapped };
+    return {
+      retrieved: mapped,
+      telemetry: {
+        rewrittenQuery: state.rewrittenQuery,
+        semanticHits,
+        keywordHits,
+        retrievedChunks: mapped.length,
+        retrievalScore,
+        embeddingSimilarity,
+      },
+    };
   }
 
   private async gradeAndGenerate(state: GraphStateType): Promise<Partial<GraphStateType>> {
@@ -562,6 +822,22 @@ export class ToolRagRecommendationService {
       candidates,
       state.requestId,
     );
+    const rerankScore = this.averageScore(
+      rankedCandidates
+        .slice(0, 5)
+        .map((candidate) => candidate.rerankScore ?? candidate.score),
+    );
+    this.langfuse.createScore({
+      traceId: state.requestId,
+      name: 'rerank_score',
+      value: rerankScore,
+      metadata: {
+        query: state.query,
+        rewrittenQuery: state.rewrittenQuery,
+        candidateCount: rankedCandidates.length,
+        reranker: this.cloudflareAi.getRerankerModelName(),
+      },
+    });
     this.logFlow(8, 'llm_recommendation_start', {
       requestId: state.requestId,
       candidateCount: rankedCandidates.slice(0, 10).length,
@@ -581,7 +857,13 @@ export class ToolRagRecommendationService {
           (recommendation) => recommendation.toolId,
         ),
       });
-      return llmDecision;
+      return {
+        ...llmDecision,
+        telemetry: {
+          ...llmDecision.telemetry,
+          rerankScore,
+        },
+      };
     }
 
     this.logFlow(9, 'fallback_ranking_used', {
@@ -590,7 +872,19 @@ export class ToolRagRecommendationService {
       candidateCount: rankedCandidates.length,
     });
 
-    return this.chooseWithFallback(state.requestId, state.query, rankedCandidates);
+    const fallbackDecision = this.chooseWithFallback(
+      state.requestId,
+      state.query,
+      rankedCandidates,
+    );
+
+    return {
+      ...fallbackDecision,
+      telemetry: {
+        ...fallbackDecision.telemetry,
+        rerankScore,
+      },
+    };
   }
 
   private async buildCandidates(state: GraphStateType): Promise<CandidateTool[]> {
@@ -791,9 +1085,15 @@ export class ToolRagRecommendationService {
     traceId: string,
     query: string,
     candidates: CandidateTool[],
-  ) {
+  ): Promise<RecommendationDecision> {
+    const modelBody = buildOpenRouterModelBody();
+
     if (!process.env.OPENROUTER_API_KEY || candidates.length === 0) {
-      return { recommendations: [], llmAnswer: '' };
+      return {
+        recommendations: [],
+        llmAnswer: '',
+        telemetry: { llmModel: modelBody.model },
+      };
     }
 
     const candidatePayload = candidates.map((candidate) => ({
@@ -810,7 +1110,6 @@ export class ToolRagRecommendationService {
       retrievedContext: truncate(candidate.context, 900),
     }));
     const openRouterUrl = resolveOpenRouterChatUrl();
-    const modelBody = buildOpenRouterModelBody();
     const requestBody = {
       ...modelBody,
       temperature: 0.1,
@@ -891,7 +1190,11 @@ export class ToolRagRecommendationService {
             candidateCount: candidatePayload.length,
           },
         });
-        return { recommendations: [], llmAnswer: '' };
+        return {
+          recommendations: [],
+          llmAnswer: '',
+          telemetry: { llmModel: modelBody.model },
+        };
       }
 
       const payload = (await response.json()) as {
@@ -966,6 +1269,12 @@ export class ToolRagRecommendationService {
             ? parsed.answer.trim()
             : this.buildFriendlyAnswer(query, recommendations, candidates),
         recommendations,
+        telemetry: {
+          llmModel: modelBody.model,
+          promptTokens: payload.usage?.prompt_tokens ?? 0,
+          completionTokens: payload.usage?.completion_tokens ?? 0,
+          totalTokens: payload.usage?.total_tokens ?? 0,
+        },
       };
     } catch (error) {
       this.logFlow(9, 'llm_failed_using_fallback', {
@@ -989,11 +1298,19 @@ export class ToolRagRecommendationService {
           candidateCount: candidatePayload.length,
         },
       });
-      return { recommendations: [], llmAnswer: '' };
+      return {
+        recommendations: [],
+        llmAnswer: '',
+        telemetry: { llmModel: modelBody.model },
+      };
     }
   }
 
-  private chooseWithFallback(traceId: string, query: string, candidates: CandidateTool[]) {
+  private chooseWithFallback(
+    traceId: string,
+    query: string,
+    candidates: CandidateTool[],
+  ): RecommendationDecision {
     const startedAt = Date.now();
     const queryTokens = tokenize(query);
     const intentFiltered = this.filterCandidatesByIntent(queryTokens, candidates);
@@ -1056,6 +1373,12 @@ export class ToolRagRecommendationService {
     return {
       recommendations,
       llmAnswer: this.buildFriendlyAnswer(query, recommendations, candidates),
+      telemetry: {
+        llmModel: buildOpenRouterModelBody().model,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+      },
     };
   }
 
@@ -1145,6 +1468,13 @@ export class ToolRagRecommendationService {
       normalizedQuery,
       filters.category,
     );
+
+    if (
+      filters.subcategory === 'Research Assistant' &&
+      filters.category === 'Research'
+    ) {
+      delete filters.category;
+    }
 
     return filters;
   }
@@ -1406,6 +1736,10 @@ export class ToolRagRecommendationService {
       return 'SEO Assistant';
     }
 
+    if (hasAny(['research', 'paper', 'papers', 'study', 'academic'])) {
+      return 'Research Assistant';
+    }
+
     if (hasAny(['meeting', 'notes'])) {
       return 'Meeting Summary';
     }
@@ -1433,6 +1767,33 @@ export class ToolRagRecommendationService {
     const bestFor = candidate.bestFor[0] || candidate.subcategory || candidate.category;
 
     return `Good fit for ${bestFor.toLowerCase()} based on its core features.`;
+  }
+
+  private averageScore(values: number[]) {
+    const validValues = values.filter((value) => Number.isFinite(value));
+
+    if (validValues.length === 0) {
+      return 0;
+    }
+
+    return clampScore(
+      validValues.reduce((sum, value) => sum + value, 0) / validValues.length,
+    );
+  }
+
+  private calculateAnswerQuality(
+    recommendations: RagRecommendation[],
+    faithfulnessScore: number,
+  ) {
+    if (recommendations.length === 0) {
+      return 0;
+    }
+
+    const recommendationConfidence = this.averageScore(
+      recommendations.map((recommendation) => recommendation.score / 100),
+    );
+
+    return clampScore(faithfulnessScore * 0.6 + recommendationConfidence * 0.4);
   }
 
   private evaluateGrounding(answer: string, recommendations: RagRecommendation[]) {
