@@ -32,7 +32,7 @@ export type AdminToolInput = {
   startingPriceUsd?: number | null;
   pricingNotes?: string | null;
   shortDescription: string;
-  summary?: string | null;
+  summary?: string | string[] | null;
   features?: string[];
   bestFor?: string[];
   targetAudience?: string[];

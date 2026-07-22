@@ -218,6 +218,18 @@ function cleanString(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function cleanSummary(value: unknown) {
+  if (Array.isArray(value)) {
+    const paragraphs = value
+      .map((item) => cleanString(item))
+      .filter(Boolean);
+
+    return paragraphs.length > 0 ? paragraphs.join('\n\n') : null;
+  }
+
+  return cleanString(value) || null;
+}
+
 function asStringArray(value: Prisma.JsonValue | null | undefined): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
@@ -842,6 +854,7 @@ export class ToolsService {
     const subcategory = cleanString(input.subcategory) || category;
     const pricingModel = cleanString(input.pricingModel) || 'Unknown';
     const freePlan = cleanString(input.freePlan) || 'Unknown';
+    const summary = cleanSummary(input.summary);
     const features = inputStringArray(input.features);
     const bestFor = inputStringArray(input.bestFor);
     const targetAudience = inputStringArray(input.targetAudience);
@@ -860,7 +873,7 @@ export class ToolsService {
       category,
       subcategory,
       shortDescription,
-      summary: input.summary ?? null,
+      summary,
       pricingModel,
       freePlan,
       features,
@@ -893,7 +906,7 @@ export class ToolsService {
       startingPriceUsd: input.startingPriceUsd ?? null,
       pricingNotes: input.pricingNotes ?? null,
       shortDescription,
-      summary: input.summary ?? null,
+      summary,
       features,
       bestFor,
       targetAudience,
