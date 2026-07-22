@@ -752,6 +752,8 @@ export class ToolRagIndexService {
       `Tool: ${tool.name}`,
       `Category: ${tool.category} / ${tool.subcategory}`,
       `Company: ${tool.company}`,
+      `Website: ${tool.website}`,
+      `Domain: ${tool.domain}`,
       `Description: ${tool.shortDescription}`,
       `Summary: ${tool.summary ?? tool.shortDescription}`,
       `Features: ${asStringArray(tool.features).join(', ')}`,
@@ -761,14 +763,29 @@ export class ToolRagIndexService {
       `AI type: ${asStringArray(tool.aiType).join(', ')}`,
       `Modalities: ${asStringArray(tool.modalities).join(', ')}`,
       `Providers: ${asStringArray(tool.modelProvider).join(', ')}`,
+      `Models: ${asStringArray(tool.modelNames).join(', ')}`,
+      `Deployment: ${asStringArray(tool.deploymentType).join(', ')}`,
       `Platforms: ${asStringArray(tool.platforms).join(', ')}`,
+      `Integrations: ${asStringArray(tool.integrations).join(', ')}`,
       `Pricing: ${tool.pricingModel}; free plan: ${tool.freePlan}; free trial: ${
         tool.freeTrial ? 'yes' : 'no'
+      }; starting price USD: ${tool.startingPriceUsd ?? 'unknown'}; pricing notes: ${
+        tool.pricingNotes ?? 'none'
       }`,
       `API available: ${tool.apiAvailable ? 'yes' : 'no'}`,
       `Open source: ${tool.openSource ? 'yes' : 'no'}`,
+      `Team collaboration: ${
+        tool.teamCollaboration === null ? 'unknown' : tool.teamCollaboration ? 'yes' : 'no'
+      }`,
+      `Security: ${asStringArray(tool.security).join(', ')}`,
+      `Privacy notes: ${tool.privacyNotes ?? 'none'}`,
       `Status: ${tool.status}`,
+      `Launch year: ${tool.launchYear ?? 'unknown'}`,
       `Rating: ${tool.rating ?? 'unknown'}`,
+      `Review count: ${tool.reviewCount ?? 'unknown'}`,
+      `Popularity score: ${tool.popularityScore ?? 'unknown'}`,
+      `Source URL: ${tool.sourceUrl}`,
+      `Source type: ${tool.sourceType}`,
       `Catalog search text: ${tool.searchText}`,
     ].join('\n');
 

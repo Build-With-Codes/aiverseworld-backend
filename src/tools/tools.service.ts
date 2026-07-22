@@ -396,15 +396,90 @@ function tokenize(value: string) {
   );
 }
 
+function levenshteinDistance(left: string, right: string) {
+  if (left === right) return 0;
+  if (!left) return right.length;
+  if (!right) return left.length;
+
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: right.length + 1 }, () => 0);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        current[rightIndex - 1] + 1,
+        previous[rightIndex - 1] + substitutionCost,
+      );
+    }
+
+    previous.splice(0, previous.length, ...current);
+  }
+
+  return previous[right.length];
+}
+
+function fuzzySimilarity(left: string, right: string) {
+  const normalizedLeft = left.toLowerCase();
+  const normalizedRight = right.toLowerCase();
+  const maxLength = Math.max(normalizedLeft.length, normalizedRight.length);
+
+  if (maxLength === 0) return 1;
+
+  return 1 - levenshteinDistance(normalizedLeft, normalizedRight) / maxLength;
+}
+
+function searchableWords(tool: AiTool) {
+  return Array.from(
+    new Set(
+      [
+        tool.name,
+        tool.slug,
+        tool.company,
+        tool.domain,
+        tool.category,
+        tool.subcategory,
+        ...tool.searchText.split(/[^a-z0-9.]+/),
+      ]
+        .map((value) => value.toLowerCase().trim())
+        .filter((value) => value.length > 2),
+    ),
+  );
+}
+
+function fuzzyToolScore(tool: AiTool, query: string, tokens: string[]) {
+  const normalizedQuery = query.toLowerCase();
+  const haystack = tool.searchText.toLowerCase();
+  const words = searchableWords(tool);
+  const exactBoost = haystack.includes(normalizedQuery) ? 35 : 0;
+  const tokenScore = tokens.reduce((score, token) => {
+    if (haystack.includes(token)) return score + 20;
+
+    const bestSimilarity = Math.max(...words.map((word) => fuzzySimilarity(token, word)), 0);
+    return score + bestSimilarity * 18;
+  }, 0);
+  const qualityScore = (tool.popularityScore ?? 0) / 20 + (tool.rating ?? 0);
+
+  return exactBoost + tokenScore + qualityScore;
+}
+
 function buildToolSearchText(input: {
   name: string;
   company: string;
+  website: string;
+  domain: string;
   category: string;
   subcategory: string;
   shortDescription: string;
   summary?: string | null;
   pricingModel: string;
+  startingPriceUsd?: number | null;
+  pricingNotes?: string | null;
   freePlan: string;
+  freeTrial?: boolean;
   features: string[];
   bestFor: string[];
   targetAudience: string[];
@@ -413,19 +488,38 @@ function buildToolSearchText(input: {
   modalities: string[];
   modelProvider: string[];
   modelNames?: string[] | null;
+  apiAvailable?: boolean;
+  openSource?: boolean;
   deploymentType: string[];
   platforms: string[];
   integrations?: string[] | null;
+  teamCollaboration?: boolean | null;
+  security?: string[] | null;
+  privacyNotes?: string | null;
+  popularityScore?: number | null;
+  rating?: number | null;
+  reviewCount?: number | null;
+  status?: string;
+  launchYear?: number | null;
+  sourceUrl?: string;
+  sourceType?: string;
 }) {
   return [
     input.name,
     input.company,
+    input.website,
+    input.domain,
     input.category,
     input.subcategory,
     input.shortDescription,
     input.summary,
     input.pricingModel,
+    input.startingPriceUsd === null || input.startingPriceUsd === undefined
+      ? undefined
+      : `price ${input.startingPriceUsd} usd ${input.startingPriceUsd} dollars`,
+    input.pricingNotes,
     input.freePlan,
+    input.freeTrial === undefined ? undefined : `free trial ${input.freeTrial ? 'yes' : 'no'}`,
     input.features.join(' '),
     input.bestFor.join(' '),
     input.targetAudience.join(' '),
@@ -434,9 +528,25 @@ function buildToolSearchText(input: {
     input.modalities.join(' '),
     input.modelProvider.join(' '),
     input.modelNames?.join(' '),
+    input.apiAvailable === undefined ? undefined : `api available ${input.apiAvailable ? 'yes' : 'no'}`,
+    input.openSource === undefined ? undefined : `open source ${input.openSource ? 'yes' : 'no'}`,
     input.deploymentType.join(' '),
     input.platforms.join(' '),
     input.integrations?.join(' '),
+    input.teamCollaboration === undefined || input.teamCollaboration === null
+      ? undefined
+      : `team collaboration ${input.teamCollaboration ? 'yes' : 'no'}`,
+    input.security?.join(' '),
+    input.privacyNotes,
+    input.popularityScore === null || input.popularityScore === undefined
+      ? undefined
+      : `popularity score ${input.popularityScore}`,
+    input.rating === null || input.rating === undefined ? undefined : `rating ${input.rating}`,
+    input.reviewCount === null || input.reviewCount === undefined ? undefined : `reviews ${input.reviewCount}`,
+    input.status,
+    input.launchYear === null || input.launchYear === undefined ? undefined : `launched ${input.launchYear}`,
+    input.sourceUrl,
+    input.sourceType,
   ]
     .filter(Boolean)
     .join(' ')
@@ -464,7 +574,7 @@ export class ToolsService {
     const orderBy = this.buildOrderBy(input.sort);
     const prisma = this.getPrisma();
 
-    const [total, tools, categories] = await Promise.all([
+    let [total, tools, categories] = await Promise.all([
       prisma.aiTool.count({ where }),
       prisma.aiTool.findMany({
         where,
@@ -478,6 +588,27 @@ export class ToolsService {
         select: { category: true },
       }),
     ]);
+
+    if (input.search && tools.length === 0) {
+      const fuzzyWhere = this.buildWhere({ ...input, search: undefined });
+      const normalizedSearch = normalizeRecommendationQuery(input.search);
+      const tokens = tokenize(normalizedSearch);
+      const fuzzyCandidates = await prisma.aiTool.findMany({
+        where: fuzzyWhere,
+        orderBy: [{ popularityScore: 'desc' }, { rating: 'desc' }, { rank: 'asc' }],
+        take: 1000,
+      });
+      const fuzzyResults = fuzzyCandidates
+        .map((tool) => ({
+          tool,
+          score: fuzzyToolScore(tool, normalizedSearch, tokens),
+        }))
+        .filter((item) => item.score >= 14)
+        .sort((left, right) => right.score - left.score);
+
+      total = fuzzyResults.length;
+      tools = fuzzyResults.slice((page - 1) * limit, page * limit).map((item) => item.tool);
+    }
 
     return {
       data: tools.map(normalizeTool),
@@ -514,11 +645,20 @@ export class ToolsService {
       };
     }
 
-    const candidates = await this.getPrisma().aiTool.findMany({
+    let usedFuzzyFallback = false;
+    let candidates = await this.getPrisma().aiTool.findMany({
       where: this.buildRecommendationWhere(tokens),
       take: 80,
       orderBy: [{ popularityScore: 'desc' }, { rating: 'desc' }, { rank: 'asc' }],
     });
+
+    if (candidates.length === 0) {
+      usedFuzzyFallback = true;
+      candidates = await this.getPrisma().aiTool.findMany({
+        take: 1000,
+        orderBy: [{ popularityScore: 'desc' }, { rating: 'desc' }, { rank: 'asc' }],
+      });
+    }
 
     const scored = candidates
       .map((tool) => {
@@ -526,12 +666,14 @@ export class ToolsService {
         const exactBoost = haystack.includes(normalizedSearch) ? 20 : 0;
         const tokenScore = tokens.reduce((score, token) => score + (haystack.includes(token) ? 10 : 0), 0);
         const qualityScore = (tool.popularityScore ?? 0) / 10 + (tool.rating ?? 0);
+        const fuzzyScore = fuzzyToolScore(tool, normalizedSearch, tokens);
 
         return {
           tool,
-          score: exactBoost + tokenScore + qualityScore,
+          score: Math.max(exactBoost + tokenScore + qualityScore, fuzzyScore),
         };
       })
+      .filter((item) => !usedFuzzyFallback || item.score >= 14)
       .sort((left, right) => right.score - left.score)
       .slice(0, clampNumber(limit, 1, 20));
 
@@ -866,16 +1008,29 @@ export class ToolsService {
     const deploymentType = inputStringArray(input.deploymentType);
     const platforms = inputStringArray(input.platforms);
     const integrations = inputStringArray(input.integrations);
+    const security = inputStringArray(input.security);
+    const startingPriceUsd = input.startingPriceUsd ?? null;
+    const popularityScore = input.popularityScore ?? null;
+    const rating = input.rating ?? null;
+    const reviewCount = input.reviewCount ?? null;
+    const launchYear = input.launchYear ?? null;
+    const sourceUrl = cleanString(input.sourceUrl) || website;
+    const sourceType = cleanString(input.sourceType) || 'admin-api';
 
     const searchText = buildToolSearchText({
       name,
       company,
+      website,
+      domain,
       category,
       subcategory,
       shortDescription,
       summary,
       pricingModel,
+      startingPriceUsd,
+      pricingNotes: input.pricingNotes ?? null,
       freePlan,
+      freeTrial: input.freeTrial ?? false,
       features,
       bestFor,
       targetAudience,
@@ -884,9 +1039,21 @@ export class ToolsService {
       modalities,
       modelProvider,
       modelNames,
+      apiAvailable: input.apiAvailable ?? false,
+      openSource: input.openSource ?? false,
       deploymentType,
       platforms,
       integrations,
+      teamCollaboration: input.teamCollaboration ?? null,
+      security,
+      privacyNotes: input.privacyNotes ?? null,
+      popularityScore,
+      rating,
+      reviewCount,
+      status: cleanString(input.status) || 'Active',
+      launchYear,
+      sourceUrl,
+      sourceType,
     });
 
     return {
@@ -903,7 +1070,7 @@ export class ToolsService {
       freePlan,
       freeTrial: input.freeTrial ?? false,
       pricingModel,
-      startingPriceUsd: input.startingPriceUsd ?? null,
+      startingPriceUsd,
       pricingNotes: input.pricingNotes ?? null,
       shortDescription,
       summary,
@@ -921,16 +1088,16 @@ export class ToolsService {
       platforms,
       integrations: jsonArrayOrNull(integrations),
       teamCollaboration: input.teamCollaboration ?? null,
-      security: jsonArrayOrNull(inputStringArray(input.security)),
+      security: jsonArrayOrNull(security),
       privacyNotes: input.privacyNotes ?? null,
-      popularityScore: input.popularityScore ?? null,
-      rating: input.rating ?? null,
-      reviewCount: input.reviewCount ?? null,
+      popularityScore,
+      rating,
+      reviewCount,
       status: cleanString(input.status) || 'Active',
-      launchYear: input.launchYear ?? null,
+      launchYear,
       lastVerified: input.lastVerified ? new Date(`${input.lastVerified}T00:00:00.000Z`) : null,
-      sourceUrl: cleanString(input.sourceUrl) || website,
-      sourceType: cleanString(input.sourceType) || 'admin-api',
+      sourceUrl,
+      sourceType,
       searchText,
     };
   }
