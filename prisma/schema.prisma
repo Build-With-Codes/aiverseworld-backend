@@ -230,6 +230,12 @@ model AiTool {
   lastVerified      DateTime?
   sourceUrl         String
   sourceType        String
+  prosJson          Json?
+  consJson          Json?
+  editorialVerdict  String?  @db.Text
+  alternativesNote  String?  @db.Text
+  faqsJson          Json?
+  featureNotesJson  Json?
   searchText        String   @db.Text
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -262,5 +268,145 @@ model AiToolEmbedding {
   @@index([toolId])
   @@index([contentHash])
   @@index([updatedAt(sort: Desc)])
+  @@schema("aiverse_world")
+}
+
+// ── Engagement & retention ──────────────────────────────────────────────
+// userId is the auth-service AuthUser.id (aiverse_auth schema), stored as a
+// plain string — intentionally NOT a cross-schema foreign key. anonId is a
+// client-generated stable id for anonymous attribution.
+
+model ToolEvent {
+  id        String   @id @default(cuid())
+  toolId    String?
+  userId    String?
+  anonId    String?
+  type      String // view | save | unsave | compare | search | click
+  query     String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([type, createdAt(sort: Desc)])
+  @@index([toolId, type])
+  @@index([userId, type, createdAt(sort: Desc)])
+  @@index([anonId, type, createdAt(sort: Desc)])
+  @@schema("aiverse_world")
+}
+
+model ToolStat {
+  toolId        String   @id
+  viewsTotal    Int      @default(0)
+  views7d       Int      @default(0)
+  views30d      Int      @default(0)
+  savesTotal    Int      @default(0)
+  comparesTotal Int      @default(0)
+  searchHits    Int      @default(0)
+  trendingScore Float    @default(0)
+  updatedAt     DateTime @updatedAt
+
+  @@index([trendingScore(sort: Desc)])
+  @@index([savesTotal(sort: Desc)])
+  @@index([comparesTotal(sort: Desc)])
+  @@schema("aiverse_world")
+}
+
+model SavedTool {
+  id        String   @id @default(cuid())
+  userId    String
+  toolId    String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, toolId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([toolId])
+  @@schema("aiverse_world")
+}
+
+model FollowedCategory {
+  id        String   @id @default(cuid())
+  userId    String
+  category  String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, category])
+  @@index([userId])
+  @@schema("aiverse_world")
+}
+
+// Central media library — one record per asset, referenced by blogs, tools,
+// categories, collections, authors. Stored in Cloudflare R2 (or local fallback).
+model Media {
+  id           String   @id @default(cuid())
+  filename     String
+  url          String // public URL (R2 public bucket or local /uploads)
+  storageKey   String? // object key in R2 (null when local)
+  mimeType     String
+  format       String // webp | avif | png | jpeg ...
+  width        Int?
+  height       Int?
+  size         Int? // bytes
+  altText      String?
+  caption      String?
+  credit       String?
+  license      String?
+  blurDataUrl  String?  @db.Text // base64 blur placeholder for next/image
+  sourceUrl    String? // original URL when ingested from the web
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  coverForPosts BlogPost[] @relation("BlogCover")
+
+  @@index([createdAt(sort: Desc)])
+  @@schema("aiverse_world")
+}
+
+model BlogPost {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  title           String
+  description     String    @db.Text
+  content         String    @db.Text // rich HTML: headings, images, links, tables
+  contentBlocks   Json?     // forward-compat: block-based content (image blocks, etc.)
+  category        String
+  tags            Json?
+  author          String
+  coverImage      String?   // legacy plain URL (kept for backward compat)
+  coverMediaId    String?
+  coverMedia      Media?    @relation("BlogCover", fields: [coverMediaId], references: [id], onDelete: SetNull)
+  galleryJson     Json?     // array of media ids / structured image refs
+  seoTitle        String?
+  metaDescription String?   @db.Text
+  readTime        String    @default("5 min")
+  themeJson       Json?
+  featured        Boolean   @default(false)
+  published       Boolean   @default(true)
+  publishedAt     DateTime
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([published, publishedAt(sort: Desc)])
+  @@index([category])
+  @@index([featured])
+  @@index([coverMediaId])
+  @@schema("aiverse_world")
+}
+
+// User-submitted tool reviews. toolId/userId are plain strings (matching the
+// SavedTool/ToolEvent convention) — userId is the auth-service AuthUser.id,
+// not a cross-schema FK.
+model Review {
+  id          String   @id @default(cuid())
+  toolId      String
+  userId      String
+  authorName  String
+  authorEmail String
+  authorImage String?
+  rating      Int // 1-5
+  comment     String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, toolId])
+  @@index([toolId, createdAt(sort: Desc)])
   @@schema("aiverse_world")
 }

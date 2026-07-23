@@ -26,9 +26,12 @@
     "prisma:studio": "prisma studio",
     "tools:import": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" scripts/import-ai-tools.ts",
     "tools:reindex": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" scripts/reindex-ai-tool-vectors.ts",
-    "problems:import": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" scripts/import-problems.ts"
+    "problems:import": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" scripts/import-problems.ts",
+    "blog:import": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" scripts/import-blog.ts",
+    "blog:backfill-blocks": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" scripts/backfill-blog-blocks.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1093.0",
     "@langchain/core": "^0.3.79",
     "@langchain/langgraph": "^0.4.9",
     "@langchain/textsplitters": "^0.1.0",
@@ -38,10 +41,12 @@
     "@pinecone-database/pinecone": "^8.0.0",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "node-html-parser": "^9.0.0",
     "pg": "^8.21.0",
     "prisma": "^7.8.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

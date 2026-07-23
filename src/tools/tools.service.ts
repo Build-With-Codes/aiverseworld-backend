@@ -234,6 +234,34 @@ function asStringArray(value: Prisma.JsonValue | null | undefined): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
+function asQaPairArray(
+  value: Prisma.JsonValue | null | undefined,
+): { question: string; answer: string }[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.filter(
+    (item): item is { question: string; answer: string } =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof (item as Record<string, unknown>).question === 'string' &&
+      typeof (item as Record<string, unknown>).answer === 'string',
+  );
+}
+
+function asFeatureNoteArray(
+  value: Prisma.JsonValue | null | undefined,
+): { feature: string; benefit: string }[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.filter(
+    (item): item is { feature: string; benefit: string } =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof (item as Record<string, unknown>).feature === 'string' &&
+      typeof (item as Record<string, unknown>).benefit === 'string',
+  );
+}
+
 function inputStringArray(value: unknown, fallback: string[] = []) {
   if (!Array.isArray(value)) {
     return fallback;
@@ -295,6 +323,12 @@ function normalizeTool(tool: {
   lastVerified: Date | null;
   sourceUrl: string;
   sourceType: string;
+  prosJson: Prisma.JsonValue | null;
+  consJson: Prisma.JsonValue | null;
+  editorialVerdict: string | null;
+  alternativesNote: string | null;
+  faqsJson: Prisma.JsonValue | null;
+  featureNotesJson: Prisma.JsonValue | null;
 }) {
   return {
     id: tool.id,
@@ -339,6 +373,12 @@ function normalizeTool(tool: {
     lastVerified: tool.lastVerified?.toISOString().slice(0, 10) ?? '',
     sourceUrl: tool.sourceUrl,
     sourceType: tool.sourceType,
+    pros: asStringArray(tool.prosJson),
+    cons: asStringArray(tool.consJson),
+    editorialVerdict: tool.editorialVerdict ?? undefined,
+    alternativesNote: tool.alternativesNote ?? undefined,
+    faqs: asQaPairArray(tool.faqsJson),
+    featureNotes: asFeatureNoteArray(tool.featureNotesJson),
   };
 }
 
@@ -711,6 +751,28 @@ export class ToolsService {
     }
 
     return normalizeTool(tool);
+  }
+
+  /**
+   * Hydrate a list of tool ids into normalized AITool DTOs, preserving the
+   * input order and silently dropping ids that no longer resolve. Used by the
+   * engagement layer (trending, rankings, saved, recently-viewed, related).
+   */
+  async hydrateByIds(ids: string[]) {
+    const unique = Array.from(new Set(ids.filter(Boolean)));
+
+    if (unique.length === 0) {
+      return [];
+    }
+
+    const rows = await this.getPrisma().aiTool.findMany({
+      where: { id: { in: unique } },
+    });
+    const byId = new Map(rows.map((row) => [row.id, normalizeTool(row)]));
+
+    return ids
+      .map((id) => byId.get(id))
+      .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool));
   }
 
   async upsertAdminTool(input: AdminToolInput) {

@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import express from 'express';
 import { createServer } from 'node:net';
+import { join } from 'node:path';
 import { AppModule } from './app.module';
 
 const bootstrapLogger = new Logger('Bootstrap');
@@ -48,6 +49,16 @@ async function findAvailablePort(preferredPort: number) {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.use('/api/english-tutor/realtime-call', express.text({ type: '*/*' }));
+  // Larger JSON limit for base64 image uploads to the media API.
+  app.use(express.json({ limit: '20mb' }));
+  // Serve locally-stored media (dev fallback when Cloudflare R2 is not configured).
+  app.use(
+    '/uploads',
+    express.static(join(process.cwd(), 'data', 'uploads'), {
+      maxAge: '1y',
+      immutable: true,
+    }),
+  );
   app.enableCors({
     origin: process.env.CORS_ORIGIN?.split(',').map((value) => value.trim()) ?? [
       'http://localhost:3000',

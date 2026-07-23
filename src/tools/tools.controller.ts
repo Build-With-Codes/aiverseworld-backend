@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { PublicApiCacheService } from '../cache/public-api-cache.service';
+import { EngagementService } from './engagement.service';
 import { ToolRagIndexService } from './tool-rag-index.service';
 import { ToolRagRecommendationService } from './tool-rag-recommendation.service';
 import { ToolsService } from './tools.service';
@@ -64,7 +65,95 @@ export class ToolsController {
     private readonly toolsService: ToolsService,
     private readonly ragRecommendationService: ToolRagRecommendationService,
     private readonly ragIndexService: ToolRagIndexService,
+    private readonly engagementService: EngagementService,
   ) {}
+
+  @Post('events')
+  async recordEvent(
+    @Res({ passthrough: true }) response: Response,
+    @Body()
+    body: {
+      type?: string;
+      toolId?: string;
+      userId?: string;
+      anonId?: string;
+      query?: string;
+      metadata?: Record<string, unknown>;
+    },
+  ) {
+    response.setHeader('Cache-Control', 'no-store');
+
+    if (!body?.type) {
+      throw new BadRequestException('Event type is required.');
+    }
+
+    const result = await this.engagementService.recordEvent({
+      type: body.type,
+      toolId: body.toolId,
+      userId: body.userId,
+      anonId: body.anonId,
+      query: body.query,
+      metadata: body.metadata,
+    });
+
+    return { data: result };
+  }
+
+  @Post('stats/recompute')
+  async recomputeStats(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+  ) {
+    assertAdmin(headers);
+    return { data: await this.engagementService.recomputeStats() };
+  }
+
+  @Get('trending')
+  async trending(
+    @Query('window') window?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return {
+      data: await this.engagementService.getTrending(
+        window?.trim() || '7d',
+        limit ? Number(limit) : 12,
+      ),
+    };
+  }
+
+  @Get('rankings')
+  async rankings(
+    @Query('metric') metric?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return {
+      data: await this.engagementService.getRankings(
+        metric?.trim() || 'most-saved',
+        limit ? Number(limit) : 12,
+      ),
+    };
+  }
+
+  @Get('spotlights')
+  async spotlights() {
+    return this.engagementService.getSpotlights();
+  }
+
+  @Get('collections')
+  collections() {
+    return this.engagementService.getCollections();
+  }
+
+  @Get('collections/:slug')
+  collection(@Param('slug') slug: string) {
+    return this.engagementService.getCollection(slug);
+  }
+
+  @Get('related/:id')
+  async related(@Param('id') id: string, @Query('limit') limit?: string) {
+    return {
+      data: await this.engagementService.getRelated(id, limit ? Number(limit) : 6),
+    };
+  }
 
   @Get()
   async list(

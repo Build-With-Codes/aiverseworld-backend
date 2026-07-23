@@ -1,0 +1,7 @@
+ALTER TABLE "aiverse_world"."AiTool"
+  ADD COLUMN IF NOT EXISTS "prosJson" JSONB,
+  ADD COLUMN IF NOT EXISTS "consJson" JSONB,
+  ADD COLUMN IF NOT EXISTS "editorialVerdict" TEXT,
+  ADD COLUMN IF NOT EXISTS "alternativesNote" TEXT,
+  ADD COLUMN IF NOT EXISTS "faqsJson" JSONB,
+  ADD COLUMN IF NOT EXISTS "featureNotesJson" JSONB;

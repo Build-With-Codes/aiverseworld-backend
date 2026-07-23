@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { BlogModule } from './blog/blog.module';
+import { MediaModule } from './media/media.module';
+import { ReviewsModule } from './reviews/reviews.module';
 import { CacheModule } from './cache/cache.module';
 import { DatabaseModule } from './database/database.module';
 import { EnglishTutorModule } from './english-tutor/english-tutor.module';
@@ -13,6 +16,9 @@ import { ToolsModule } from './tools/tools.module';
   imports: [
     CacheModule,
     DatabaseModule,
+    BlogModule,
+    MediaModule,
+    ReviewsModule,
     NewsModule,
     GamesModule,
     EnglishTutorModule,
