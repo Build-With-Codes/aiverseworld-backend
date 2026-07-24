@@ -51,6 +51,15 @@ async function main() {
   try {
     await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
 
+    const force = process.argv.includes('--force');
+    const existing = await prisma.blogPost.count();
+    if (existing > 0 && !force) {
+      console.log(
+        `Blog table already has ${existing} post(s) — skipping seed to avoid overwriting live/edited content. Pass --force to re-sync from data/blog-posts.json anyway.`,
+      );
+      return;
+    }
+
     let count = 0;
     for (const [index, post] of posts.entries()) {
       const publishedAt = new Date(post.publishedAt);
