@@ -10,6 +10,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { MediaService, type MediaMeta } from './media.service';
+import { PublicApiCacheService } from '../cache/public-api-cache.service';
 
 function assertAdmin(headers: Record<string, string | string[] | undefined>) {
   const configuredKey = process.env.ADMIN_API_KEY?.trim();
@@ -43,7 +44,10 @@ export class MediaController {
 
 @Controller('api/admin/media')
 export class AdminMediaController {
-  constructor(private readonly mediaService: MediaService) {}
+  constructor(
+    private readonly mediaService: MediaService,
+    private readonly cacheService: PublicApiCacheService,
+  ) {}
 
   @Post('ingest-url')
   async ingestUrl(
@@ -52,7 +56,9 @@ export class AdminMediaController {
   ) {
     assertAdmin(headers);
     if (!body?.url) throw new BadRequestException('url is required.');
-    return { data: await this.mediaService.ingestFromUrl(body.url, body) };
+    const data = await this.mediaService.ingestFromUrl(body.url, body);
+    await this.cacheService.invalidate('admin media ingest-url');
+    return { data };
   }
 
   @Post('upload')
@@ -62,6 +68,8 @@ export class AdminMediaController {
   ) {
     assertAdmin(headers);
     if (!body?.data) throw new BadRequestException('Base64 image `data` is required.');
-    return { data: await this.mediaService.ingestFromBase64(body.data, body) };
+    const data = await this.mediaService.ingestFromBase64(body.data, body);
+    await this.cacheService.invalidate('admin media upload');
+    return { data };
   }
 }

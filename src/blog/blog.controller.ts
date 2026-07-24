@@ -11,6 +11,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { BlogService, type AdminBlogInput } from './blog.service';
+import { PublicApiCacheService } from '../cache/public-api-cache.service';
 
 function assertAdmin(headers: Record<string, string | string[] | undefined>) {
   const configuredKey = process.env.ADMIN_API_KEY?.trim();
@@ -67,7 +68,10 @@ export class BlogController {
 
 @Controller('api/admin/blog')
 export class AdminBlogController {
-  constructor(private readonly blogService: BlogService) {}
+  constructor(
+    private readonly blogService: BlogService,
+    private readonly cacheService: PublicApiCacheService,
+  ) {}
 
   @Get()
   list(
@@ -92,7 +96,7 @@ export class AdminBlogController {
   }
 
   @Post()
-  create(
+  async create(
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Body() body: AdminBlogInput,
   ) {
@@ -100,11 +104,13 @@ export class AdminBlogController {
     if (!body?.title || !body?.content || !body?.category) {
       throw new BadRequestException('title, content, and category are required.');
     }
-    return this.blogService.upsert(body);
+    const result = await this.blogService.upsert(body);
+    await this.cacheService.invalidate('admin blog upsert');
+    return result;
   }
 
   @Post('bulk')
-  bulk(
+  async bulk(
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Body() body: AdminBlogInput[] | { posts?: AdminBlogInput[] },
   ) {
@@ -113,15 +119,19 @@ export class AdminBlogController {
     if (!Array.isArray(posts) || posts.length === 0) {
       throw new BadRequestException('Send a non-empty posts array.');
     }
-    return Promise.all(posts.map((post) => this.blogService.upsert(post)));
+    const result = await Promise.all(posts.map((post) => this.blogService.upsert(post)));
+    await this.cacheService.invalidate('admin bulk blog upsert');
+    return result;
   }
 
   @Delete(':slug')
-  remove(
+  async remove(
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Param('slug') slug: string,
   ) {
     assertAdmin(headers);
-    return this.blogService.delete(slug);
+    const result = await this.blogService.delete(slug);
+    await this.cacheService.invalidate('admin blog delete');
+    return result;
   }
 }

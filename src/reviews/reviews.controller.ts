@@ -12,6 +12,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ReviewsService } from './reviews.service';
+import { PublicApiCacheService } from '../cache/public-api-cache.service';
 
 function assertAdmin(headers: Record<string, string | string[] | undefined>) {
   const configuredKey = process.env.ADMIN_API_KEY?.trim();
@@ -70,7 +71,10 @@ export class ToolReviewsController {
 /** Per-user writes — server-to-server only, mirrors MeController's internal-key gate. */
 @Controller('api/me/reviews')
 export class MeReviewsController {
-  constructor(private readonly reviewsService: ReviewsService) {}
+  constructor(
+    private readonly reviewsService: ReviewsService,
+    private readonly cacheService: PublicApiCacheService,
+  ) {}
 
   @Get()
   ownReview(
@@ -85,7 +89,7 @@ export class MeReviewsController {
   }
 
   @Post()
-  submit(
+  async submit(
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Body()
     body: {
@@ -104,7 +108,7 @@ export class MeReviewsController {
     if (!body?.authorName || !body?.authorEmail) {
       throw new BadRequestException('authorName and authorEmail are required.');
     }
-    return this.reviewsService.submit({
+    const result = await this.reviewsService.submit({
       toolId: body.toolId,
       userId,
       authorName: body.authorName,
@@ -113,35 +117,44 @@ export class MeReviewsController {
       rating: Number(body.rating),
       comment: body.comment ?? '',
     });
+    await this.cacheService.invalidate('review submit');
+    return result;
   }
 
   @Put(':id')
-  update(
+  async update(
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Param('id') id: string,
     @Body() body: { userId?: string; rating?: number; comment?: string },
   ) {
     assertInternal(headers);
     const userId = requireUserId(body?.userId);
-    return this.reviewsService.update(id, userId, Number(body?.rating), body?.comment ?? '');
+    const result = await this.reviewsService.update(id, userId, Number(body?.rating), body?.comment ?? '');
+    await this.cacheService.invalidate('review update');
+    return result;
   }
 
   @Delete(':id')
-  remove(
+  async remove(
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Param('id') id: string,
     @Query('userId') userId?: string,
   ) {
     assertInternal(headers);
     const uid = requireUserId(userId);
-    return this.reviewsService.delete(id, uid);
+    const result = await this.reviewsService.delete(id, uid);
+    await this.cacheService.invalidate('review delete');
+    return result;
   }
 }
 
 /** Admin moderation. */
 @Controller('api/admin/reviews')
 export class AdminReviewsController {
-  constructor(private readonly reviewsService: ReviewsService) {}
+  constructor(
+    private readonly reviewsService: ReviewsService,
+    private readonly cacheService: PublicApiCacheService,
+  ) {}
 
   @Get()
   list(
@@ -154,11 +167,13 @@ export class AdminReviewsController {
   }
 
   @Delete(':id')
-  remove(
+  async remove(
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Param('id') id: string,
   ) {
     assertAdmin(headers);
-    return this.reviewsService.adminDelete(id);
+    const result = await this.reviewsService.adminDelete(id);
+    await this.cacheService.invalidate('admin review delete');
+    return result;
   }
 }
