@@ -13,6 +13,16 @@ export type ListToolsInput = {
   sort: ToolSort;
 };
 
+export type ToolFaqInput = {
+  question: string;
+  answer: string;
+};
+
+export type ToolFeatureNoteInput = {
+  feature: string;
+  benefit: string;
+};
+
 export type AdminToolInput = {
   sourceName?: string;
   sourceType?: string;
@@ -49,13 +59,16 @@ export type AdminToolInput = {
   teamCollaboration?: boolean | null;
   security?: string[];
   privacyNotes?: string | null;
-  popularityScore?: number | null;
-  rating?: number | null;
-  reviewCount?: number | null;
   status?: string;
   launchYear?: number | null;
   lastVerified?: string | null;
   sourceUrl?: string;
+  pros?: string[];
+  cons?: string[];
+  editorialVerdict?: string | null;
+  alternativesNote?: string | null;
+  faqs?: ToolFaqInput[];
+  featureNotes?: ToolFeatureNoteInput[];
 };
 
 export type AdminToolUpdateInput = Partial<AdminToolInput> & {

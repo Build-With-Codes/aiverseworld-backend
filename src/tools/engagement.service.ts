@@ -145,14 +145,31 @@ export class EngagementService {
   }
 
   /**
-   * Aggregate the ToolEvent log into per-tool ToolStat rollups. Idempotent —
+   * Aggregate the ToolEvent log into per-tool ToolStat rollups, and derive
+   * AiTool.popularityScore from that same lifetime engagement. Idempotent —
    * safe to run on a schedule or on demand. trendingScore is a recency-weighted
-   * blend of views, saves, and compares over the last 30 days.
+   * blend of views, saves, and compares over the last 30 days; popularityScore
+   * is a 0-100 normalization of lifetime totals with no manual/static input —
+   * a tool with zero engagement gets 0.
    */
   async recomputeStats(): Promise<{ toolsUpdated: number }> {
     const prisma = this.getPrisma();
     const now = Date.now();
     const cutoff30d = new Date(now - 30 * 24 * 60 * 60_000);
+
+    const allTools = await prisma.aiTool.findMany({ select: { id: true } });
+    const validToolIds = allTools.map((tool) => tool.id);
+
+    // A catalog re-import (or a deleted tool) leaves ToolEvent/ToolStat rows
+    // pointing at ids that no longer exist. Left alone, recompute keeps
+    // rolling that dead data into trending/rankings forever — hydrating those
+    // ids later returns nothing, silently starving Trending. Purge first.
+    await Promise.all([
+      prisma.toolEvent.deleteMany({
+        where: { AND: [{ toolId: { not: null } }, { toolId: { notIn: validToolIds } }] },
+      }),
+      prisma.toolStat.deleteMany({ where: { toolId: { notIn: validToolIds } } }),
+    ]);
 
     const events = await prisma.toolEvent.findMany({
       where: {
@@ -227,6 +244,28 @@ export class EngagementService {
 
     const entries = Array.from(byTool.entries());
 
+    // Lifetime popularity (distinct from the recency-decayed trendingScore
+    // above): a fixed-weight blend of totals, min-max normalized to 0-100
+    // across the current catalog so it stays comparable over time.
+    const popularityWeight = { view: 1, save: 5, compare: 3, search: 1 };
+    const rawPopularity = new Map<string, number>();
+    let maxRawPopularity = 0;
+    for (const [toolId, acc] of entries) {
+      const raw =
+        acc.viewsTotal * popularityWeight.view +
+        acc.savesTotal * popularityWeight.save +
+        acc.comparesTotal * popularityWeight.compare +
+        acc.searchHits * popularityWeight.search;
+      rawPopularity.set(toolId, raw);
+      if (raw > maxRawPopularity) maxRawPopularity = raw;
+    }
+
+    const popularityUpdates = allTools.map(({ id }) => {
+      const raw = rawPopularity.get(id) ?? 0;
+      const score = maxRawPopularity > 0 ? Math.round((raw / maxRawPopularity) * 100) : 0;
+      return { id, score };
+    });
+
     await prisma.$transaction([
       ...entries.map(([toolId, acc]) =>
         prisma.toolStat.upsert({
@@ -251,6 +290,9 @@ export class EngagementService {
             trendingScore: Number(acc.trendingScore.toFixed(4)),
           },
         }),
+      ),
+      ...popularityUpdates.map(({ id, score }) =>
+        prisma.aiTool.update({ where: { id }, data: { popularityScore: score } }),
       ),
     ]);
 

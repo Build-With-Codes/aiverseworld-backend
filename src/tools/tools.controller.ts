@@ -16,6 +16,7 @@ import { PublicApiCacheService } from '../cache/public-api-cache.service';
 import { EngagementService } from './engagement.service';
 import { ToolRagIndexService } from './tool-rag-index.service';
 import { ToolRagRecommendationService } from './tool-rag-recommendation.service';
+import { parseAdminToolsCsv } from './tools-csv.util';
 import { ToolsService } from './tools.service';
 import type { AdminToolInput, AdminToolUpdateInput } from './tools.types';
 
@@ -299,12 +300,13 @@ export class AdminToolsController {
   ) {
     assertAdmin(headers);
     const tool = await this.toolsService.upsertAdminTool(body);
-    const vectorIndex = await this.ragIndexService.indexTool(tool);
+    const { vectorIndex, vectorIndexError } = await this.indexToolSafely(tool);
     await this.cacheService.invalidate('admin tool upsert');
 
     return {
       data: this.toolsService.normalizeToolForResponse(tool),
       vectorIndex,
+      ...(vectorIndexError ? { vectorIndexError } : {}),
     };
   }
 
@@ -315,25 +317,67 @@ export class AdminToolsController {
   ) {
     assertAdmin(headers);
     const inputs = getBulkTools(body);
+    return this.processBulkUpsert(inputs);
+  }
+
+  @Post('import-csv')
+  async importCsv(
+    @Body() body: { csv?: string },
+    @Headers() headers: Record<string, string | string[] | undefined>,
+  ) {
+    assertAdmin(headers);
+    const csv = typeof body?.csv === 'string' ? body.csv : '';
+
+    if (!csv.trim()) {
+      throw new BadRequestException('Send CSV content in the "csv" field.');
+    }
+
+    const { inputs, rowNumbers, errors } = parseAdminToolsCsv(csv);
+
+    if (inputs.length === 0) {
+      throw new BadRequestException(
+        errors[0]?.error ?? 'No importable data rows found in the CSV.',
+      );
+    }
+
+    if (inputs.length > 1000) {
+      throw new BadRequestException('CSV import supports up to 1000 data rows per request.');
+    }
+
+    const bulkResult = await this.processBulkUpsert(inputs, rowNumbers);
+
+    return {
+      ...bulkResult,
+      skipped: errors.length,
+      skippedRows: errors,
+    };
+  }
+
+  private async processBulkUpsert(inputs: AdminToolInput[], rowNumbers?: number[]) {
     const results: Array<Record<string, unknown>> = [];
     let succeeded = 0;
     let failed = 0;
 
     for (const [index, input] of inputs.entries()) {
+      const row = rowNumbers?.[index];
+
       try {
         const tool = await this.toolsService.upsertAdminTool(input);
-        const vectorIndex = await this.ragIndexService.indexTool(tool);
+        const { vectorIndex, vectorIndexError } = await this.indexToolSafely(tool);
         succeeded += 1;
         results.push({
           index,
+          ...(row !== undefined ? { row } : {}),
           ok: true,
           data: this.toolsService.normalizeToolForResponse(tool),
           vectorIndex,
+          ...(vectorIndexError ? { vectorIndexError } : {}),
         });
       } catch (error) {
         failed += 1;
         results.push({
           index,
+          ...(row !== undefined ? { row } : {}),
           ok: false,
           slug: input?.slug,
           name: input?.name,
@@ -354,6 +398,24 @@ export class AdminToolsController {
     };
   }
 
+  /**
+   * The AiTool row is the source of truth; Pinecone is a secondary search index. A Pinecone
+   * failure (bad credentials, network) must not be reported as a failed save when the row
+   * upsert already committed — callers can retry indexing later via POST :id/reindex.
+   */
+  private async indexToolSafely(
+    tool: Parameters<ToolRagIndexService['indexTool']>[0],
+  ): Promise<{ vectorIndex: { toolId: string; chunks: number } | null; vectorIndexError?: string }> {
+    try {
+      return { vectorIndex: await this.ragIndexService.indexTool(tool) };
+    } catch (error) {
+      return {
+        vectorIndex: null,
+        vectorIndexError: error instanceof Error ? error.message : 'Unknown vector index error.',
+      };
+    }
+  }
+
   @Put(':id')
   async update(
     @Param('id') id: string,
@@ -362,12 +424,13 @@ export class AdminToolsController {
   ) {
     assertAdmin(headers);
     const tool = await this.toolsService.updateAdminTool(id, body);
-    const vectorIndex = await this.ragIndexService.indexTool(tool);
+    const { vectorIndex, vectorIndexError } = await this.indexToolSafely(tool);
     await this.cacheService.invalidate('admin tool update');
 
     return {
       data: this.toolsService.normalizeToolForResponse(tool),
       vectorIndex,
+      ...(vectorIndexError ? { vectorIndexError } : {}),
     };
   }
 

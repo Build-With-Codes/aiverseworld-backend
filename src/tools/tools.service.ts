@@ -272,8 +272,46 @@ function inputStringArray(value: unknown, fallback: string[] = []) {
     .filter(Boolean);
 }
 
+function inputQaPairArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (typeof item !== 'object' || item === null) return null;
+      const record = item as Record<string, unknown>;
+      const question = cleanString(record.question);
+      const answer = cleanString(record.answer);
+
+      return question && answer ? { question, answer } : null;
+    })
+    .filter((item): item is { question: string; answer: string } => Boolean(item));
+}
+
+function inputFeatureNoteArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (typeof item !== 'object' || item === null) return null;
+      const record = item as Record<string, unknown>;
+      const feature = cleanString(record.feature);
+      const benefit = cleanString(record.benefit);
+
+      return feature && benefit ? { feature, benefit } : null;
+    })
+    .filter((item): item is { feature: string; benefit: string } => Boolean(item));
+}
+
 function jsonArrayOrNull(value: string[] | undefined | null) {
   return value && value.length > 0 ? value : Prisma.JsonNull;
+}
+
+function jsonObjectArrayOrNull<T extends Record<string, string>>(value: T[]) {
+  return value.length > 0 ? value : Prisma.JsonNull;
 }
 
 function clampNumber(value: number, min: number, max: number) {
@@ -536,13 +574,16 @@ function buildToolSearchText(input: {
   teamCollaboration?: boolean | null;
   security?: string[] | null;
   privacyNotes?: string | null;
-  popularityScore?: number | null;
-  rating?: number | null;
-  reviewCount?: number | null;
   status?: string;
   launchYear?: number | null;
   sourceUrl?: string;
   sourceType?: string;
+  pros?: string[];
+  cons?: string[];
+  editorialVerdict?: string | null;
+  alternativesNote?: string | null;
+  faqs?: { question: string; answer: string }[];
+  featureNotes?: { feature: string; benefit: string }[];
 }) {
   return [
     input.name,
@@ -578,15 +619,16 @@ function buildToolSearchText(input: {
       : `team collaboration ${input.teamCollaboration ? 'yes' : 'no'}`,
     input.security?.join(' '),
     input.privacyNotes,
-    input.popularityScore === null || input.popularityScore === undefined
-      ? undefined
-      : `popularity score ${input.popularityScore}`,
-    input.rating === null || input.rating === undefined ? undefined : `rating ${input.rating}`,
-    input.reviewCount === null || input.reviewCount === undefined ? undefined : `reviews ${input.reviewCount}`,
     input.status,
     input.launchYear === null || input.launchYear === undefined ? undefined : `launched ${input.launchYear}`,
     input.sourceUrl,
     input.sourceType,
+    input.pros?.join(' '),
+    input.cons?.join(' '),
+    input.editorialVerdict,
+    input.alternativesNote,
+    input.faqs?.map((item) => `${item.question} ${item.answer}`).join(' '),
+    input.featureNotes?.map((item) => `${item.feature} ${item.benefit}`).join(' '),
   ]
     .filter(Boolean)
     .join(' ')
@@ -922,33 +964,65 @@ export class ToolsService {
     };
   }
 
+  /**
+   * Popularity-ranked, deduplicated comparison pairs — same-category tools
+   * first (what people actually search "X vs Y" for), each tool paired with
+   * its nearest neighbors rather than every combination, so the list stays a
+   * spread across categories instead of exhausting one category's full
+   * combinatorial set. A canonical (sorted) key stops "A vs B" and "B vs A"
+   * from both appearing as separate entries.
+   */
   async getComparisons(limit = 120) {
+    const take = clampNumber(limit, 2, 200);
     const tools = await this.getPrisma().aiTool.findMany({
       orderBy: this.buildOrderBy('popular'),
-      take: clampNumber(limit, 2, 200),
+      take,
     });
-    const pairs: Array<{ slug: string; title: string; summary: string }> = [];
 
-    for (let index = 0; index < tools.length; index += 1) {
-      const left = tools[index];
-      const right =
-        tools.find((tool) => tool.slug !== left.slug && tool.category === left.category) ||
-        tools[index + 1];
-
-      if (!right || right.slug === left.slug) {
-        continue;
+    const byCategory = new Map<string, typeof tools>();
+    for (const tool of tools) {
+      const bucket = byCategory.get(tool.category);
+      if (bucket) {
+        bucket.push(tool);
+      } else {
+        byCategory.set(tool.category, [tool]);
       }
+    }
 
-      const slug = `${left.slug}-vs-${right.slug}`;
-      if (pairs.some((pair) => pair.slug === slug)) {
-        continue;
-      }
+    const seen = new Set<string>();
+    const pairs: Array<{
+      slug: string;
+      title: string;
+      summary: string;
+      left: { slug: string; name: string; favicon: string; category: string };
+      right: { slug: string; name: string; favicon: string; category: string };
+    }> = [];
 
+    const addPair = (left: (typeof tools)[number], right: (typeof tools)[number]) => {
+      if (pairs.length >= take || left.slug === right.slug) return;
+      const key = [left.slug, right.slug].sort().join('|');
+      if (seen.has(key)) return;
+      seen.add(key);
       pairs.push({
-        slug,
+        slug: `${left.slug}-vs-${right.slug}`,
         title: `${left.name} vs ${right.name}`,
         summary: `Compare ${left.name} and ${right.name} across pricing, features, platforms, and use cases.`,
+        left: { slug: left.slug, name: left.name, favicon: left.favicon, category: left.category },
+        right: { slug: right.slug, name: right.name, favicon: right.favicon, category: right.category },
       });
+    };
+
+    for (const bucket of byCategory.values()) {
+      for (let i = 0; i < bucket.length && pairs.length < take; i += 1) {
+        for (let offset = 1; offset <= 2 && i + offset < bucket.length && pairs.length < take; offset += 1) {
+          addPair(bucket[i], bucket[i + offset]);
+        }
+      }
+    }
+
+    // Fill any remaining slots with adjacent-popularity cross-category pairs.
+    for (let index = 0; index < tools.length - 1 && pairs.length < take; index += 1) {
+      addPair(tools[index], tools[index + 1]);
     }
 
     return {
@@ -1071,10 +1145,13 @@ export class ToolsService {
     const platforms = inputStringArray(input.platforms);
     const integrations = inputStringArray(input.integrations);
     const security = inputStringArray(input.security);
+    const pros = inputStringArray(input.pros);
+    const cons = inputStringArray(input.cons);
+    const faqs = inputQaPairArray(input.faqs);
+    const featureNotes = inputFeatureNoteArray(input.featureNotes);
+    const editorialVerdict = cleanString(input.editorialVerdict) || null;
+    const alternativesNote = cleanString(input.alternativesNote) || null;
     const startingPriceUsd = input.startingPriceUsd ?? null;
-    const popularityScore = input.popularityScore ?? null;
-    const rating = input.rating ?? null;
-    const reviewCount = input.reviewCount ?? null;
     const launchYear = input.launchYear ?? null;
     const sourceUrl = cleanString(input.sourceUrl) || website;
     const sourceType = cleanString(input.sourceType) || 'admin-api';
@@ -1109,13 +1186,16 @@ export class ToolsService {
       teamCollaboration: input.teamCollaboration ?? null,
       security,
       privacyNotes: input.privacyNotes ?? null,
-      popularityScore,
-      rating,
-      reviewCount,
       status: cleanString(input.status) || 'Active',
       launchYear,
       sourceUrl,
       sourceType,
+      pros,
+      cons,
+      editorialVerdict,
+      alternativesNote,
+      faqs,
+      featureNotes,
     });
 
     return {
@@ -1152,14 +1232,17 @@ export class ToolsService {
       teamCollaboration: input.teamCollaboration ?? null,
       security: jsonArrayOrNull(security),
       privacyNotes: input.privacyNotes ?? null,
-      popularityScore,
-      rating,
-      reviewCount,
       status: cleanString(input.status) || 'Active',
       launchYear,
       lastVerified: input.lastVerified ? new Date(`${input.lastVerified}T00:00:00.000Z`) : null,
       sourceUrl,
       sourceType,
+      prosJson: jsonArrayOrNull(pros),
+      consJson: jsonArrayOrNull(cons),
+      editorialVerdict,
+      alternativesNote,
+      faqsJson: jsonObjectArrayOrNull(faqs),
+      featureNotesJson: jsonObjectArrayOrNull(featureNotes),
       searchText,
     };
   }
@@ -1182,6 +1265,12 @@ export class ToolsService {
       aiType: input.aiType ?? current.aiType,
       modalities: input.modalities ?? current.modalities,
       modelProvider: input.modelProvider ?? current.modelProvider,
+      pros: input.pros ?? current.pros,
+      cons: input.cons ?? current.cons,
+      editorialVerdict: input.editorialVerdict ?? current.editorialVerdict,
+      alternativesNote: input.alternativesNote ?? current.alternativesNote,
+      faqs: input.faqs ?? current.faqs,
+      featureNotes: input.featureNotes ?? current.featureNotes,
       deploymentType: input.deploymentType ?? current.deploymentType,
       platforms: input.platforms ?? current.platforms,
     };
