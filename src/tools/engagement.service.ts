@@ -266,8 +266,8 @@ export class EngagementService {
       return { id, score };
     });
 
-    await prisma.$transaction([
-      ...entries.map(([toolId, acc]) =>
+    await prisma.$transaction(
+      entries.map(([toolId, acc]) =>
         prisma.toolStat.upsert({
           where: { toolId },
           create: {
@@ -291,10 +291,24 @@ export class EngagementService {
           },
         }),
       ),
-      ...popularityUpdates.map(({ id, score }) =>
-        prisma.aiTool.update({ where: { id }, data: { popularityScore: score } }),
-      ),
-    ]);
+      { timeout: 15_000 },
+    );
+
+    // One batched UPDATE instead of one round trip per tool — with a
+    // catalog of hundreds of tools, N individual prisma.aiTool.update()
+    // calls inside a $transaction blew past Prisma's interactive-transaction
+    // timeout in production (P2028). This is a single statement either way.
+    if (popularityUpdates.length > 0) {
+      const values = Prisma.join(
+        popularityUpdates.map(({ id, score }) => Prisma.sql`(${id}::text, ${score}::int)`),
+      );
+      await prisma.$executeRaw`
+        UPDATE "aiverse_world"."AiTool" AS t
+        SET "popularityScore" = v.score
+        FROM (VALUES ${values}) AS v(id, score)
+        WHERE t.id = v.id
+      `;
+    }
 
     return { toolsUpdated: entries.length };
   }
