@@ -8,7 +8,10 @@ import {
 import type { Request, Response } from 'express';
 import { from, of } from 'rxjs';
 import { switchMap, tap } from 'rxjs/operators';
-import { PublicApiCacheService } from './public-api-cache.service';
+import {
+  PUBLIC_API_CACHEABLE_PREFIXES,
+  PublicApiCacheService,
+} from './public-api-cache.service';
 
 @Injectable()
 export class PublicApiCacheInterceptor implements NestInterceptor {
@@ -25,7 +28,7 @@ export class PublicApiCacheInterceptor implements NestInterceptor {
     const cacheability = this.cache.getCacheability(request.method, path);
 
     if (!cacheability.cacheable) {
-      if (path.startsWith('/api/tools') || path.startsWith('/api/problems') || path.startsWith('/api/news')) {
+      if (PUBLIC_API_CACHEABLE_PREFIXES.some((prefix) => path.startsWith(prefix))) {
         this.logger.log(
           `${request.method} ${originalUrl} -> DB/controller (cache skipped: ${cacheability.reason ?? 'not cacheable'})`,
         );

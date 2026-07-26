@@ -4,6 +4,27 @@ import { createHash } from 'node:crypto';
 const DEFAULT_TTL_SECONDS = 2 * 24 * 60 * 60;
 const VERSION_CACHE_MS = 30_000;
 const VERSION_KEY = 'aiverseworld:public-api-cache:version';
+export const PUBLIC_API_CACHEABLE_PREFIXES = [
+  '/api/tools',
+  '/api/problems',
+  '/api/news',
+  '/api/blog',
+  '/api/media',
+];
+const EXCLUDED_PREFIXES = [
+  { prefix: '/api/admin', reason: 'admin/private endpoint' },
+  { prefix: '/api/me', reason: 'per-user/private endpoint' },
+  { prefix: '/api/english-tutor', reason: 'interactive/session endpoint' },
+  { prefix: '/api/games', reason: 'interactive endpoint' },
+];
+const EXCLUDED_EXACT_PATHS = [
+  { path: '/health', reason: 'root/health endpoint' },
+  { path: '/', reason: 'root/health endpoint' },
+  { path: '/api/tools/rag/reindex', reason: 'operational endpoint' },
+  { path: '/api/news/health', reason: 'operational endpoint' },
+  { path: '/api/tools/recommend', reason: 'AI recommendation endpoint is query-specific' },
+  { path: '/api/tools/recommend/rag', reason: 'AI recommendation endpoint is query-specific' },
+];
 
 type UpstashResponse<T> = {
   result?: T;
@@ -42,29 +63,17 @@ export class PublicApiCacheService {
       return { cacheable: false, reason: 'Redis cache disabled or missing env' };
     }
 
-    if (path === '/health' || path === '/') {
-      return { cacheable: false, reason: 'root/health endpoint' };
+    const exactExclusion = EXCLUDED_EXACT_PATHS.find((item) => item.path === path);
+    if (exactExclusion) {
+      return { cacheable: false, reason: exactExclusion.reason };
     }
 
-    if (path.startsWith('/api/english-tutor')) {
-      return { cacheable: false, reason: 'interactive English tutor endpoint' };
+    const prefixExclusion = EXCLUDED_PREFIXES.find((item) => path.startsWith(item.prefix));
+    if (prefixExclusion) {
+      return { cacheable: false, reason: prefixExclusion.reason };
     }
 
-    if (path === '/api/tools/rag/reindex' || path === '/api/news/health') {
-      return { cacheable: false, reason: 'operational endpoint' };
-    }
-
-    if (path === '/api/tools/recommend' || path === '/api/tools/recommend/rag') {
-      return { cacheable: false, reason: 'AI recommendation endpoint is query-specific' };
-    }
-
-    if (
-      path.startsWith('/api/tools') ||
-      path.startsWith('/api/problems') ||
-      path.startsWith('/api/news') ||
-      path.startsWith('/api/blog') ||
-      path.startsWith('/api/media')
-    ) {
+    if (PUBLIC_API_CACHEABLE_PREFIXES.some((prefix) => path.startsWith(prefix))) {
       return { cacheable: true };
     }
 
@@ -111,6 +120,53 @@ export class PublicApiCacheService {
       };
       this.logger.log(`Invalidated public API cache (${reason}); version=${version}`);
     }
+  }
+
+  async reset(reason: string) {
+    if (!this.isEnabled()) {
+      this.warnUnavailableOnce();
+      return {
+        ok: false,
+        enabled: false,
+        message: 'Public API Redis cache is disabled or missing credentials.',
+      };
+    }
+
+    const version = await this.command<number>(['INCR', VERSION_KEY]);
+    const nextVersion = version ? String(version) : undefined;
+
+    if (nextVersion) {
+      this.versionCache = {
+        value: nextVersion,
+        expiresAt: Date.now() + VERSION_CACHE_MS,
+      };
+      this.logger.log(`Reset public API cache (${reason}); version=${nextVersion}`);
+      return {
+        ok: true,
+        enabled: true,
+        version: nextVersion,
+        coverage: this.getCoverage(),
+        message: 'Public API Redis cache reset.',
+      };
+    }
+
+    return {
+      ok: false,
+      enabled: true,
+      coverage: this.getCoverage(),
+      message: 'Redis cache reset command did not return a version.',
+    };
+  }
+
+  getCoverage() {
+    return {
+      invalidationMode: 'versioned namespace',
+      cacheableMethods: ['GET'],
+      cacheablePrefixes: PUBLIC_API_CACHEABLE_PREFIXES,
+      excludedPrefixes: EXCLUDED_PREFIXES,
+      excludedExactPaths: EXCLUDED_EXACT_PATHS,
+      note: 'Reset bumps the shared public API cache version, so all existing keys under these cacheable public API routes are ignored immediately.',
+    };
   }
 
   private async getVersion() {
