@@ -30,6 +30,9 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
     'AiToolSource',
     'AiTool',
     'AiToolEmbedding',
+    'ToolYoutubeVideo',
+    'BookRecommendation',
+    'PageBook',
   ];
   private available = false;
   private pool: Pool | null = null;
@@ -75,7 +78,9 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
     this.logMigrationStatus();
 
     if (!this.client) {
-      this.logger.warn('DATABASE_URL is not set. Prisma persistence is disabled.');
+      this.logger.warn(
+        'DATABASE_URL is not set. Prisma persistence is disabled.',
+      );
       return;
     }
 
@@ -94,7 +99,9 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       }
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'Unknown Prisma connection error';
+        error instanceof Error
+          ? error.message
+          : 'Unknown Prisma connection error';
       this.lastError = message;
       this.logger.error(`Prisma connection failed: ${message}`);
     }
@@ -158,7 +165,7 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
             : null,
         configured: Boolean(
           process.env.DIRECT_URL?.trim() ||
-            process.env.DIRECT_DATABASE_URL?.trim(),
+          process.env.DIRECT_DATABASE_URL?.trim(),
         ),
       },
     };
@@ -208,7 +215,9 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       return true;
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'Unknown Prisma reconnection error';
+        error instanceof Error
+          ? error.message
+          : 'Unknown Prisma reconnection error';
       this.available = false;
       this.lastError = message;
       this.logger.warn(`Prisma reconnect failed: ${message}`);
@@ -223,7 +232,12 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
 
     const [dbInfoRows, tableRows] = await Promise.all([
       this.client.$queryRawUnsafe<
-        Array<{ db: string; schema: string; host: string | null; port: number | null }>
+        Array<{
+          db: string;
+          schema: string;
+          host: string | null;
+          port: number | null;
+        }>
       >(
         `select current_database() as db, current_schema() as schema, inet_server_addr()::text as host, inet_server_port() as port`,
       ),
@@ -257,11 +271,15 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
       }
 
       // Re-verify tables exist after push
-      const verifyRows = await this.client.$queryRaw<Array<{ tablename: string }>>(
+      const verifyRows = await this.client.$queryRaw<
+        Array<{ tablename: string }>
+      >(
         Prisma.sql`SELECT tablename FROM pg_tables WHERE schemaname = ${this.schemaName}`,
       );
       const verifiedTables = new Set(verifyRows.map((r) => r.tablename));
-      const stillMissing = this.requiredTables.filter((t) => !verifiedTables.has(t));
+      const stillMissing = this.requiredTables.filter(
+        (t) => !verifiedTables.has(t),
+      );
 
       if (stillMissing.length > 0) {
         this.available = false;

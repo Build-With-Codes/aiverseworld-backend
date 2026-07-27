@@ -9,8 +9,6 @@ datasource db {
 
 model NewsSource {
   id                  String       @id @default(cuid())
-
-  @@schema("aiverse_world")
   name                String       @unique
   type                String
   baseUrl             String
@@ -19,28 +17,30 @@ model NewsSource {
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
   rawArticles         RawArticle[]
+
+  @@schema("aiverse_world")
 }
 
 model RawArticle {
-  id            String      @id @default(cuid())
+  id            String     @id @default(cuid())
   sourceId      String
   externalId    String?
   title         String
-  url           String      @unique
-  content       String      @db.Text
-  excerpt       String      @db.Text
+  url           String     @unique
+  content       String     @db.Text
+  excerpt       String     @db.Text
   author        String?
   publishedAt   DateTime
-  fetchedAt     DateTime    @default(now())
+  fetchedAt     DateTime   @default(now())
   contentHash   String
-  status        String      @default("fetched")
+  status        String     @default("fetched")
   category      String?
   imageUrl      String?
-  isDuplicate   Boolean     @default(false)
+  isDuplicate   Boolean    @default(false)
   duplicateOfId String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  source        NewsSource  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  source        NewsSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   aiArticle     AiArticle?
 
   @@index([sourceId, publishedAt(sort: Desc)])
@@ -50,25 +50,25 @@ model RawArticle {
 }
 
 model AiArticle {
-  id             String    @id @default(cuid())
-  rawArticleId   String    @unique
+  id             String     @id @default(cuid())
+  rawArticleId   String     @unique
   title          String
   slug           String
-  summary        String    @db.Text
+  summary        String     @db.Text
   keyPoints      Json
   category       String
   tags           Json?
-  sourceUrl      String    @unique
+  sourceUrl      String     @unique
   sourceName     String
   imageUrl       String
   publishedAt    DateTime
   processedAt    DateTime
-  isPublished    Boolean   @default(true)
+  isPublished    Boolean    @default(true)
   copyrightOwner String
-  summaryOnly    Boolean   @default(true)
+  summaryOnly    Boolean    @default(true)
   takedownEmail  String
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
   rawArticle     RawArticle @relation(fields: [rawArticleId], references: [id], onDelete: Cascade)
 
   @@index([publishedAt(sort: Desc)])
@@ -78,17 +78,17 @@ model AiArticle {
 }
 
 model NewsPipelineRun {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   stage        String
   status       String
   trigger      String
   message      String?
-  articleCount Int      @default(0)
-  feedCount    Int      @default(0)
+  articleCount Int       @default(0)
+  feedCount    Int       @default(0)
   metadata     Json?
-  startedAt    DateTime @default(now())
+  startedAt    DateTime  @default(now())
   finishedAt   DateTime?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
   @@index([createdAt(sort: Desc)])
   @@index([status])
@@ -96,18 +96,18 @@ model NewsPipelineRun {
 }
 
 model EnglishTutorSession {
-  id            String             @id @default(cuid())
-  userId        String?
-  realtimeId    String?
-  focus         String             @default("Daily conversation")
-  provider      String             @default("openai-realtime")
-  startedAt     DateTime           @default(now())
-  endedAt       DateTime?
-  averageScore  Int?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  turns         EnglishTutorTurn[]
-  mistakes      EnglishTutorMistake[]
+  id           String                @id @default(cuid())
+  userId       String?
+  realtimeId   String?
+  focus        String                @default("Daily conversation")
+  provider     String                @default("openai-realtime")
+  startedAt    DateTime              @default(now())
+  endedAt      DateTime?
+  averageScore Int?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  turns        EnglishTutorTurn[]
+  mistakes     EnglishTutorMistake[]
 
   @@index([userId, startedAt(sort: Desc)])
   @@index([startedAt(sort: Desc)])
@@ -115,18 +115,18 @@ model EnglishTutorSession {
 }
 
 model EnglishTutorTurn {
-  id            String              @id @default(cuid())
-  sessionId     String
-  userId        String?
-  userText      String              @db.Text
-  tutorText     String              @db.Text
-  correction    String?             @db.Text
-  score         Int
-  focus         String
-  provider      String              @default("openai-realtime")
-  createdAt     DateTime            @default(now())
-  session       EnglishTutorSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  mistakes      EnglishTutorMistake[]
+  id         String                @id @default(cuid())
+  sessionId  String
+  userId     String?
+  userText   String                @db.Text
+  tutorText  String                @db.Text
+  correction String?               @db.Text
+  score      Int
+  focus      String
+  provider   String                @default("openai-realtime")
+  createdAt  DateTime              @default(now())
+  session    EnglishTutorSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  mistakes   EnglishTutorMistake[]
 
   @@index([sessionId, createdAt])
   @@index([userId, createdAt(sort: Desc)])
@@ -134,18 +134,18 @@ model EnglishTutorTurn {
 }
 
 model EnglishTutorMistake {
-  id          String              @id @default(cuid())
-  sessionId   String
-  turnId      String?
-  userId      String?
-  mistake     String
-  correction  String
-  category    String
-  count       Int                 @default(1)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  session     EnglishTutorSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  turn        EnglishTutorTurn?   @relation(fields: [turnId], references: [id], onDelete: SetNull)
+  id         String              @id @default(cuid())
+  sessionId  String
+  turnId     String?
+  userId     String?
+  mistake    String
+  correction String
+  category   String
+  count      Int                 @default(1)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  session    EnglishTutorSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  turn       EnglishTutorTurn?   @relation(fields: [turnId], references: [id], onDelete: SetNull)
 
   @@index([userId, category])
   @@index([sessionId])
@@ -154,17 +154,17 @@ model EnglishTutorMistake {
 }
 
 model Problem {
-  id             String   @id @default(cuid())
-  title          String
-  description    String   @db.Text
-  industry       String
-  frequency      String
-  painScore      Int
-  email          String?
-  aiSolvable     Int      @default(0)
-  notAiSolvable  Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id            String   @id @default(cuid())
+  title         String
+  description   String   @db.Text
+  industry      String
+  frequency     String
+  painScore     Int
+  email         String?
+  aiSolvable    Int      @default(0)
+  notAiSolvable Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([createdAt(sort: Desc)])
   @@index([industry])
@@ -173,25 +173,25 @@ model Problem {
 }
 
 model AiToolSource {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  type        String
-  baseUrl     String?
-  isActive    Boolean  @default(true)
+  id           String    @id @default(cuid())
+  name         String    @unique
+  type         String
+  baseUrl      String?
+  isActive     Boolean   @default(true)
   lastSyncedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  tools       AiTool[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  tools        AiTool[]
 
   @@schema("aiverse_world")
 }
 
 model AiTool {
-  id                String   @id @default(cuid())
+  id                String             @id @default(cuid())
   sourceId          String?
   rank              Int?
   name              String
-  slug              String   @unique
+  slug              String             @unique
   category          String
   subcategory       String
   company           String
@@ -200,12 +200,12 @@ model AiTool {
   favicon           String
   logoUrl           String?
   freePlan          String
-  freeTrial         Boolean  @default(false)
+  freeTrial         Boolean            @default(false)
   pricingModel      String
   startingPriceUsd  Float?
   pricingNotes      String?
-  shortDescription  String   @db.Text
-  summary           String?  @db.Text
+  shortDescription  String             @db.Text
+  summary           String?            @db.Text
   features          Json
   bestFor           Json
   targetAudience    Json
@@ -214,33 +214,34 @@ model AiTool {
   modalities        Json
   modelProvider     Json
   modelNames        Json?
-  apiAvailable      Boolean  @default(false)
-  openSource        Boolean  @default(false)
+  apiAvailable      Boolean            @default(false)
+  openSource        Boolean            @default(false)
   deploymentType    Json
   platforms         Json
   integrations      Json?
   teamCollaboration Boolean?
   security          Json?
-  privacyNotes      String?  @db.Text
+  privacyNotes      String?            @db.Text
   popularityScore   Int?
   rating            Float?
   reviewCount       Int?
-  status            String   @default("Active")
+  status            String             @default("Active")
   launchYear        Int?
   lastVerified      DateTime?
   sourceUrl         String
   sourceType        String
   prosJson          Json?
   consJson          Json?
-  editorialVerdict  String?  @db.Text
-  alternativesNote  String?  @db.Text
+  editorialVerdict  String?            @db.Text
+  alternativesNote  String?            @db.Text
   faqsJson          Json?
   featureNotesJson  Json?
-  searchText        String   @db.Text
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  source            AiToolSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  searchText        String             @db.Text
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  source            AiToolSource?      @relation(fields: [sourceId], references: [id], onDelete: SetNull)
   embeddings        AiToolEmbedding[]
+  youtubeVideos     ToolYoutubeVideo[]
 
   @@index([category])
   @@index([pricingModel])
@@ -275,6 +276,88 @@ model AiToolEmbedding {
 // userId is the auth-service AuthUser.id (aiverse_auth schema), stored as a
 // plain string — intentionally NOT a cross-schema foreign key. anonId is a
 // client-generated stable id for anonymous attribution.
+
+model ToolYoutubeVideo {
+  id           String    @id @default(cuid())
+  toolId       String
+  toolSlug     String
+  videoId      String
+  title        String
+  channelTitle String?
+  description  String?   @db.Text
+  thumbnailUrl String?
+  durationSec  Int?
+  viewCount    BigInt?
+  publishedAt  DateTime?
+  url          String
+  fetchedAt    DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  tool         AiTool    @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([toolSlug, videoId])
+  @@unique([toolId, videoId])
+  @@index([toolSlug])
+  @@index([toolId])
+  @@index([fetchedAt])
+  @@schema("aiverse_world")
+}
+
+model BookRecommendation {
+  id               String   @id @default(cuid())
+  slug             String   @unique
+  title            String
+  subtitle         String?
+  author           String
+  description      String   @db.Text
+  isbn13           String?
+  coverUrl         String?
+  buyUrl           String
+  merchant         String   @default("Direct")
+  categories       Json
+  tags             Json
+  keywords         Json
+  priority         Int      @default(0)
+  affiliateUrl     String?
+  affiliateEnabled Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([isActive, priority])
+  @@index([merchant])
+  @@schema("aiverse_world")
+}
+
+model PageBook {
+  id            String   @id @default(cuid())
+  contextType   String
+  contextKey    String
+  googleBookId  String
+  isbn13        String?
+  title         String
+  subtitle      String?
+  authors       Json
+  description   String?  @db.Text
+  thumbnailUrl  String?
+  averageRating Float?
+  ratingsCount  Int?
+  previewLink   String?
+  infoLink      String
+  publishedDate String?
+  categories    Json
+  score         Int      @default(0)
+  reason        String
+  searchQueries Json
+  cachedAt      DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([contextType, contextKey, googleBookId])
+  @@index([contextType, contextKey, cachedAt])
+  @@index([score])
+  @@schema("aiverse_world")
+}
 
 model ToolEvent {
   id        String   @id @default(cuid())
@@ -336,23 +419,23 @@ model FollowedCategory {
 // Central media library — one record per asset, referenced by blogs, tools,
 // categories, collections, authors. Stored in Cloudflare R2 (or local fallback).
 model Media {
-  id           String   @id @default(cuid())
-  filename     String
-  url          String // public URL (R2 public bucket or local /uploads)
-  storageKey   String? // object key in R2 (null when local)
-  mimeType     String
-  format       String // webp | avif | png | jpeg ...
-  width        Int?
-  height       Int?
-  size         Int? // bytes
-  altText      String?
-  caption      String?
-  credit       String?
-  license      String?
-  blurDataUrl  String?  @db.Text // base64 blur placeholder for next/image
-  sourceUrl    String? // original URL when ingested from the web
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String   @id @default(cuid())
+  filename    String
+  url         String // public URL (R2 public bucket or local /uploads)
+  storageKey  String? // object key in R2 (null when local)
+  mimeType    String
+  format      String // webp | avif | png | jpeg ...
+  width       Int?
+  height      Int?
+  size        Int? // bytes
+  altText     String?
+  caption     String?
+  credit      String?
+  license     String?
+  blurDataUrl String?  @db.Text // base64 blur placeholder for next/image
+  sourceUrl   String? // original URL when ingested from the web
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   coverForPosts BlogPost[] @relation("BlogCover")
 
@@ -361,28 +444,28 @@ model Media {
 }
 
 model BlogPost {
-  id              String    @id @default(cuid())
-  slug            String    @unique
+  id              String   @id @default(cuid())
+  slug            String   @unique
   title           String
-  description     String    @db.Text
-  content         String    @db.Text // rich HTML: headings, images, links, tables
-  contentBlocks   Json?     // forward-compat: block-based content (image blocks, etc.)
+  description     String   @db.Text
+  content         String   @db.Text // rich HTML: headings, images, links, tables
+  contentBlocks   Json? // forward-compat: block-based content (image blocks, etc.)
   category        String
   tags            Json?
   author          String
-  coverImage      String?   // legacy plain URL (kept for backward compat)
+  coverImage      String? // legacy plain URL (kept for backward compat)
   coverMediaId    String?
-  coverMedia      Media?    @relation("BlogCover", fields: [coverMediaId], references: [id], onDelete: SetNull)
-  galleryJson     Json?     // array of media ids / structured image refs
+  coverMedia      Media?   @relation("BlogCover", fields: [coverMediaId], references: [id], onDelete: SetNull)
+  galleryJson     Json? // array of media ids / structured image refs
   seoTitle        String?
-  metaDescription String?   @db.Text
-  readTime        String    @default("5 min")
+  metaDescription String?  @db.Text
+  readTime        String   @default("5 min")
   themeJson       Json?
-  featured        Boolean   @default(false)
-  published       Boolean   @default(true)
+  featured        Boolean  @default(false)
+  published       Boolean  @default(true)
   publishedAt     DateTime
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([published, publishedAt(sort: Desc)])
   @@index([category])
