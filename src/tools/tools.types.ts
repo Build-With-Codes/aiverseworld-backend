@@ -69,6 +69,11 @@ export type AdminToolInput = {
   alternativesNote?: string | null;
   faqs?: ToolFaqInput[];
   featureNotes?: ToolFeatureNoteInput[];
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  seoKeywords?: string[];
+  canonicalUrl?: string | null;
+  ogImage?: string | null;
 };
 
 export type AdminToolUpdateInput = Partial<AdminToolInput> & {

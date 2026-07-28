@@ -11,6 +11,7 @@ import { EnglishTutorModule } from './english-tutor/english-tutor.module';
 import { GamesModule } from './games/games.module';
 import { NewsModule } from './news/news.module';
 import { ProblemsModule } from './problems/problems.module';
+import { SeoModule } from './seo/seo.module';
 import { ToolsModule } from './tools/tools.module';
 import { YoutubeModule } from './youtube/youtube.module';
 
@@ -26,6 +27,7 @@ import { YoutubeModule } from './youtube/youtube.module';
     GamesModule,
     EnglishTutorModule,
     ProblemsModule,
+    SeoModule,
     ToolsModule,
     YoutubeModule,
   ],

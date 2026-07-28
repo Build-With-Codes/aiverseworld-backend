@@ -33,6 +33,7 @@ export class PrismaService implements OnModuleInit, OnApplicationShutdown {
     'ToolYoutubeVideo',
     'BookRecommendation',
     'PageBook',
+    'SeoPage',
   ];
   private available = false;
   private pool: Pool | null = null;

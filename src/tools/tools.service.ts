@@ -230,6 +230,69 @@ function cleanSummary(value: unknown) {
   return cleanString(value) || null;
 }
 
+function truncateSeo(value: string, length: number) {
+  const cleaned = value.replace(/\s+/g, ' ').trim();
+  return cleaned.length > length ? cleaned.slice(0, length - 1).trimEnd() : cleaned;
+}
+
+function uniqueSeoKeywords(values: string[]) {
+  return values
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .filter((value, index, array) => array.findIndex((item) => item.toLowerCase() === value.toLowerCase()) === index)
+    .slice(0, 12);
+}
+
+function buildToolSeo(input: {
+  name: string;
+  slug: string;
+  shortDescription: string;
+  summary: string | null;
+  category: string;
+  company: string;
+  tags: string[];
+  aiType: string[];
+  modelProvider: string[];
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  seoKeywords?: string[];
+  canonicalUrl?: string | null;
+  ogImage?: string | null;
+  favicon?: string | null;
+}) {
+  const siteUrl = (process.env.PUBLIC_SITE_URL ?? 'https://aiverseworld.com').replace(/\/+$/, '');
+  const title = truncateSeo(
+    cleanString(input.seoTitle) || `${input.name} Review, Pricing & Alternatives | AiverseWorld`,
+    60,
+  );
+  const description = truncateSeo(
+    cleanString(input.seoDescription) ||
+      input.summary ||
+      `${input.shortDescription} Compare ${input.name} features, pricing, use cases, and alternatives on AiverseWorld.`,
+    160,
+  );
+  const keywords = uniqueSeoKeywords([
+    ...(input.seoKeywords ?? []),
+    input.name,
+    `${input.name} review`,
+    `${input.name} pricing`,
+    `${input.name} alternatives`,
+    input.category,
+    input.company,
+    ...input.tags,
+    ...input.aiType,
+    ...input.modelProvider,
+  ]);
+
+  return {
+    title,
+    description,
+    keywords,
+    canonical: cleanString(input.canonicalUrl) || `${siteUrl}/tool/${input.slug}`,
+    ogImage: cleanString(input.ogImage) || input.favicon || `${siteUrl}/logo.webp`,
+  };
+}
+
 function asStringArray(value: Prisma.JsonValue | null | undefined): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
@@ -367,7 +430,30 @@ function normalizeTool(tool: {
   alternativesNote: string | null;
   faqsJson: Prisma.JsonValue | null;
   featureNotesJson: Prisma.JsonValue | null;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  seoKeywords: string[];
+  canonicalUrl: string | null;
+  ogImage: string | null;
 }) {
+  const seo = buildToolSeo({
+    name: tool.name,
+    slug: tool.slug,
+    shortDescription: tool.shortDescription,
+    summary: tool.summary,
+    category: tool.category,
+    company: tool.company,
+    tags: asStringArray(tool.tags),
+    aiType: asStringArray(tool.aiType),
+    modelProvider: asStringArray(tool.modelProvider),
+    seoTitle: tool.seoTitle,
+    seoDescription: tool.seoDescription,
+    seoKeywords: tool.seoKeywords,
+    canonicalUrl: tool.canonicalUrl,
+    ogImage: tool.ogImage,
+    favicon: tool.logoUrl ?? tool.favicon,
+  });
+
   return {
     id: tool.id,
     rank: tool.rank ?? 0,
@@ -417,6 +503,7 @@ function normalizeTool(tool: {
     alternativesNote: tool.alternativesNote ?? undefined,
     faqs: asQaPairArray(tool.faqsJson),
     featureNotes: asFeatureNoteArray(tool.featureNotesJson),
+    seo,
   };
 }
 
@@ -1155,6 +1242,23 @@ export class ToolsService {
     const launchYear = input.launchYear ?? null;
     const sourceUrl = cleanString(input.sourceUrl) || website;
     const sourceType = cleanString(input.sourceType) || 'admin-api';
+    const seo = buildToolSeo({
+      name,
+      slug,
+      shortDescription,
+      summary,
+      category,
+      company,
+      tags,
+      aiType,
+      modelProvider,
+      seoTitle: input.seoTitle,
+      seoDescription: input.seoDescription,
+      seoKeywords: input.seoKeywords,
+      canonicalUrl: input.canonicalUrl,
+      ogImage: input.ogImage,
+      favicon: cleanString(input.logoUrl) || cleanString(input.favicon),
+    });
 
     const searchText = buildToolSearchText({
       name,
@@ -1243,6 +1347,11 @@ export class ToolsService {
       alternativesNote,
       faqsJson: jsonObjectArrayOrNull(faqs),
       featureNotesJson: jsonObjectArrayOrNull(featureNotes),
+      seoTitle: seo.title,
+      seoDescription: seo.description,
+      seoKeywords: seo.keywords,
+      canonicalUrl: seo.canonical,
+      ogImage: seo.ogImage,
       searchText,
     };
   }
@@ -1273,6 +1382,11 @@ export class ToolsService {
       featureNotes: input.featureNotes ?? current.featureNotes,
       deploymentType: input.deploymentType ?? current.deploymentType,
       platforms: input.platforms ?? current.platforms,
+      seoTitle: input.seoTitle ?? current.seo?.title,
+      seoDescription: input.seoDescription ?? current.seo?.description,
+      seoKeywords: input.seoKeywords ?? current.seo?.keywords,
+      canonicalUrl: input.canonicalUrl ?? current.seo?.canonical,
+      ogImage: input.ogImage ?? current.seo?.ogImage,
     };
 
     return this.buildAdminToolCreateData(merged);
