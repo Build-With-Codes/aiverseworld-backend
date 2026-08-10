@@ -48,7 +48,6 @@ async function findAvailablePort(preferredPort: number) {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.use('/api/english-tutor/realtime-call', express.text({ type: '*/*' }));
   // Larger JSON limit for base64 image uploads to the media API.
   app.use(express.json({ limit: '20mb' }));
   // Serve locally-stored media (dev fallback when Cloudflare R2 is not configured).

@@ -23,8 +23,11 @@ const WRAPPER_TAGS = new Set(['div', 'section', 'article', 'main', 'span']);
 function sanitizeInline(html: string): string {
   return html
     .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
-    .replace(/\son\w+="[^"]*"/gi, '')
-    .replace(/\son\w+='[^']*'/gi, '')
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+    // Unquoted event handler attributes (e.g. onerror=alert(1)) — HTML
+    // permits these and browsers execute them just like quoted ones.
+    .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
     .replace(/javascript:/gi, '')
     .trim();
 }

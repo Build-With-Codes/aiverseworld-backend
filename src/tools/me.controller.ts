@@ -23,10 +23,9 @@ function assertInternal(
   const configuredKey = process.env.INTERNAL_API_KEY?.trim();
 
   if (!configuredKey) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new UnauthorizedException('INTERNAL_API_KEY is not configured.');
-    }
-    return; // dev-permissive, like assertAdmin
+    // Fail closed in every environment — an unconfigured secret must never
+    // silently disable authentication, even in local dev.
+    throw new UnauthorizedException('INTERNAL_API_KEY is not configured.');
   }
 
   const rawKey = headers['x-internal-api-key'];

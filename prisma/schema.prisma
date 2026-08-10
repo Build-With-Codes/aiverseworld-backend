@@ -95,64 +95,6 @@ model NewsPipelineRun {
   @@schema("aiverse_world")
 }
 
-model EnglishTutorSession {
-  id           String                @id @default(cuid())
-  userId       String?
-  realtimeId   String?
-  focus        String                @default("Daily conversation")
-  provider     String                @default("openai-realtime")
-  startedAt    DateTime              @default(now())
-  endedAt      DateTime?
-  averageScore Int?
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
-  turns        EnglishTutorTurn[]
-  mistakes     EnglishTutorMistake[]
-
-  @@index([userId, startedAt(sort: Desc)])
-  @@index([startedAt(sort: Desc)])
-  @@schema("aiverse_world")
-}
-
-model EnglishTutorTurn {
-  id         String                @id @default(cuid())
-  sessionId  String
-  userId     String?
-  userText   String                @db.Text
-  tutorText  String                @db.Text
-  correction String?               @db.Text
-  score      Int
-  focus      String
-  provider   String                @default("openai-realtime")
-  createdAt  DateTime              @default(now())
-  session    EnglishTutorSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  mistakes   EnglishTutorMistake[]
-
-  @@index([sessionId, createdAt])
-  @@index([userId, createdAt(sort: Desc)])
-  @@schema("aiverse_world")
-}
-
-model EnglishTutorMistake {
-  id         String              @id @default(cuid())
-  sessionId  String
-  turnId     String?
-  userId     String?
-  mistake    String
-  correction String
-  category   String
-  count      Int                 @default(1)
-  createdAt  DateTime            @default(now())
-  updatedAt  DateTime            @updatedAt
-  session    EnglishTutorSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  turn       EnglishTutorTurn?   @relation(fields: [turnId], references: [id], onDelete: SetNull)
-
-  @@index([userId, category])
-  @@index([sessionId])
-  @@index([mistake])
-  @@schema("aiverse_world")
-}
-
 model Problem {
   id            String   @id @default(cuid())
   title         String

@@ -126,7 +126,12 @@ export function sanitizeSvg(svg: string) {
   return svg
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, '')
-    .replace(/\son\w+="[^"]*"/gi, '')
+    // Event handler attributes in every quoting style an LLM could emit.
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
+    .replace(/(href|xlink:href)\s*=\s*"(?:\s|&#x?0*(?:9|10|13);?)*(javascript|vbscript):[^"]*"/gi, '$1="#"')
+    .replace(/(href|xlink:href)\s*=\s*'(?:\s|&#x?0*(?:9|10|13);?)*(javascript|vbscript):[^']*'/gi, "$1='#'")
     .trim();
 }
 

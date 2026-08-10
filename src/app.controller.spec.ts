@@ -45,14 +45,16 @@ describe('AppController', () => {
           '/api/problems',
           '/api/tools',
           '/api/tools/recommend',
+          '/api/tools/recommend/rag',
+          '/api/tools/rag/reindex',
         ],
       });
     });
   });
 
   describe('health', () => {
-    it('should return database diagnostics', () => {
-      expect(appController.health()).toEqual({
+    it('should return database diagnostics', async () => {
+      await expect(appController.health()).resolves.toEqual({
         status: 'degraded',
         database: {
           configured: false,
@@ -60,6 +62,20 @@ describe('AppController', () => {
           lastError: null,
           database: null,
           missingTables: [],
+        },
+        vectorDatabase: {
+          provider: 'pinecone',
+          configured: false,
+          connected: false,
+          index: 'quickstart',
+          namespace: 'ai-tools',
+          hostConfigured: false,
+          embeddingModel: 'local-hash-embedding-v1',
+          dimension: 1024,
+          metric: 'cosine',
+          totalRecordCount: null,
+          namespaceRecordCount: null,
+          lastError: 'PINECONE_API_KEY is not configured.',
         },
       });
     });

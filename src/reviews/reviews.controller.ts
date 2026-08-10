@@ -17,10 +17,9 @@ import { PublicApiCacheService } from '../cache/public-api-cache.service';
 function assertAdmin(headers: Record<string, string | string[] | undefined>) {
   const configuredKey = process.env.ADMIN_API_KEY?.trim();
   if (!configuredKey) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new UnauthorizedException('ADMIN_API_KEY is not configured.');
-    }
-    return;
+    // Fail closed in every environment — an unconfigured secret must never
+    // silently disable authentication, even in local dev.
+    throw new UnauthorizedException('ADMIN_API_KEY is not configured.');
   }
   const rawKey = headers['x-admin-api-key'];
   const key = Array.isArray(rawKey) ? rawKey[0] : rawKey;
@@ -35,10 +34,9 @@ function assertAdmin(headers: Record<string, string | string[] | undefined>) {
 function assertInternal(headers: Record<string, string | string[] | undefined>) {
   const configuredKey = process.env.INTERNAL_API_KEY?.trim();
   if (!configuredKey) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new UnauthorizedException('INTERNAL_API_KEY is not configured.');
-    }
-    return;
+    // Fail closed in every environment — an unconfigured secret must never
+    // silently disable authentication, even in local dev.
+    throw new UnauthorizedException('INTERNAL_API_KEY is not configured.');
   }
   const rawKey = headers['x-internal-api-key'];
   const key = Array.isArray(rawKey) ? rawKey[0] : rawKey;

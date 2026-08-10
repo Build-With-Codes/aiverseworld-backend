@@ -7,7 +7,6 @@ import { MediaModule } from './media/media.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { CacheModule } from './cache/cache.module';
 import { DatabaseModule } from './database/database.module';
-import { EnglishTutorModule } from './english-tutor/english-tutor.module';
 import { GamesModule } from './games/games.module';
 import { NewsModule } from './news/news.module';
 import { ProblemsModule } from './problems/problems.module';
@@ -25,7 +24,6 @@ import { YoutubeModule } from './youtube/youtube.module';
     ReviewsModule,
     NewsModule,
     GamesModule,
-    EnglishTutorModule,
     ProblemsModule,
     SeoModule,
     ToolsModule,

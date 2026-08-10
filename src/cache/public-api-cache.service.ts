@@ -14,7 +14,6 @@ export const PUBLIC_API_CACHEABLE_PREFIXES = [
 const EXCLUDED_PREFIXES = [
   { prefix: '/api/admin', reason: 'admin/private endpoint' },
   { prefix: '/api/me', reason: 'per-user/private endpoint' },
-  { prefix: '/api/english-tutor', reason: 'interactive/session endpoint' },
   { prefix: '/api/games', reason: 'interactive endpoint' },
 ];
 const EXCLUDED_EXACT_PATHS = [
