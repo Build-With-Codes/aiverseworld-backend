@@ -266,33 +266,64 @@ export class EngagementService {
       return { id, score };
     });
 
-    await prisma.$transaction(
-      entries.map(([toolId, acc]) =>
-        prisma.toolStat.upsert({
-          where: { toolId },
-          create: {
-            toolId,
-            viewsTotal: acc.viewsTotal,
-            views7d: acc.views7d,
-            views30d: acc.views30d,
-            savesTotal: acc.savesTotal,
-            comparesTotal: acc.comparesTotal,
-            searchHits: acc.searchHits,
-            trendingScore: Number(acc.trendingScore.toFixed(4)),
-          },
-          update: {
-            viewsTotal: acc.viewsTotal,
-            views7d: acc.views7d,
-            views30d: acc.views30d,
-            savesTotal: acc.savesTotal,
-            comparesTotal: acc.comparesTotal,
-            searchHits: acc.searchHits,
-            trendingScore: Number(acc.trendingScore.toFixed(4)),
-          },
-        }),
-      ),
-      { timeout: 15_000 },
-    );
+    // One SQL upsert per chunk instead of one Prisma upsert per tool inside a
+    // transaction. On small Render instances plus remote Postgres, the previous
+    // interactive transaction could expire before rollback/commit finished.
+    const statRows = entries.map(([toolId, acc]) => ({
+      toolId,
+      viewsTotal: acc.viewsTotal,
+      views7d: acc.views7d,
+      views30d: acc.views30d,
+      savesTotal: acc.savesTotal,
+      comparesTotal: acc.comparesTotal,
+      searchHits: acc.searchHits,
+      trendingScore: Number(acc.trendingScore.toFixed(4)),
+    }));
+
+    for (let index = 0; index < statRows.length; index += 200) {
+      const chunk = statRows.slice(index, index + 200);
+      if (chunk.length === 0) continue;
+
+      const values = Prisma.join(
+        chunk.map((row) =>
+          Prisma.sql`(
+            ${row.toolId}::text,
+            ${row.viewsTotal}::int,
+            ${row.views7d}::int,
+            ${row.views30d}::int,
+            ${row.savesTotal}::int,
+            ${row.comparesTotal}::int,
+            ${row.searchHits}::int,
+            ${row.trendingScore}::double precision,
+            NOW()
+          )`,
+        ),
+      );
+
+      await prisma.$executeRaw`
+        INSERT INTO "aiverse_world"."ToolStat" (
+          "toolId",
+          "viewsTotal",
+          "views7d",
+          "views30d",
+          "savesTotal",
+          "comparesTotal",
+          "searchHits",
+          "trendingScore",
+          "updatedAt"
+        )
+        VALUES ${values}
+        ON CONFLICT ("toolId") DO UPDATE SET
+          "viewsTotal" = EXCLUDED."viewsTotal",
+          "views7d" = EXCLUDED."views7d",
+          "views30d" = EXCLUDED."views30d",
+          "savesTotal" = EXCLUDED."savesTotal",
+          "comparesTotal" = EXCLUDED."comparesTotal",
+          "searchHits" = EXCLUDED."searchHits",
+          "trendingScore" = EXCLUDED."trendingScore",
+          "updatedAt" = NOW()
+      `;
+    }
 
     // One batched UPDATE instead of one round trip per tool — with a
     // catalog of hundreds of tools, N individual prisma.aiTool.update()
